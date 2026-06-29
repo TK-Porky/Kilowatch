@@ -3,9 +3,12 @@ package com.kilowatch.model;
 import com.kilowatch.exception.ReleveInvalideException;
 import com.kilowatch.interfaces.Identifiable;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 
-public class Releve implements Identifiable {
+public class Releve implements Identifiable, Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private final String id;
     private final String idAbonne;

@@ -3,11 +3,14 @@ package com.kilowatch.model;
 import com.kilowatch.interfaces.Facturable;
 import com.kilowatch.interfaces.Identifiable;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public abstract class Abonne implements Identifiable, Facturable {
+public abstract class Abonne implements Identifiable, Facturable, Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     protected final String id;
     protected String nomComplet;

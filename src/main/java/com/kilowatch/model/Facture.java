@@ -2,9 +2,12 @@ package com.kilowatch.model;
 
 import com.kilowatch.interfaces.Identifiable;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 
-public class Facture implements Identifiable {
+public class Facture implements Identifiable, Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private final String id;
     private final String idAbonne;
