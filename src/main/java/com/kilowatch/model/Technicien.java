@@ -1,8 +1,13 @@
 package com.kilowatch.model;
 
 import com.kilowatch.interfaces.Identifiable;
+import java.io.Serializable;
 
-public class Technicien implements Identifiable {
+import java.io.Serializable;
+
+public class Technicien implements Identifiable, Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private final String id;
     private String nom;
