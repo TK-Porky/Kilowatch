@@ -23,9 +23,13 @@ public class AppColors {
     public static final Color ACCENT_AMBER = Color.decode("#e8a23d");
     public static final Color STATUS_GREEN = Color.decode("#3ba776");
     public static final Color STATUS_RED = Color.decode("#e2543d");
+    public static final Color ACCENT_PURPLE = Color.decode("#a855f7");
+    public static final Color ACCENT_BLUE = Color.decode("#3b82f6");
 
     // Soft Accents (with Alpha for backgrounds)
     public static final Color AMBER_SOFT = new Color(232, 162, 61, 36);
     public static final Color GREEN_SOFT = new Color(59, 167, 118, 36);
     public static final Color RED_SOFT = new Color(226, 84, 61, 36);
+    public static final Color PURPLE_SOFT = new Color(168, 85, 247, 36);
+    public static final Color BLUE_SOFT = new Color(59, 130, 246, 36);
 }

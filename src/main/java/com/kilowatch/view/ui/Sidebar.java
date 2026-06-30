@@ -1,5 +1,6 @@
 package com.kilowatch.view.ui;
 
+import com.kilowatch.view.component.AppButton;
 import com.kilowatch.view.theme.AppColors;
 import com.kilowatch.view.theme.AppIcons;
 import javax.swing.*;
@@ -38,6 +39,7 @@ public class Sidebar extends JPanel {
         navPanel.add(createMenuButton("Abonnés", "VIEW_ABONNES", AppIcons.USERS));
         navPanel.add(Box.createVerticalStrut(4));
         navPanel.add(createMenuButton("Relevés", "VIEW_RELEVES", AppIcons.GAUGE));
+        navPanel.add(Box.createVerticalStrut(4));
         navPanel.add(createMenuButton("Caisse & Facturation", "VIEW_CAISSE", AppIcons.BANKNOTE_CHECK));
 
         return navPanel;
@@ -83,19 +85,10 @@ public class Sidebar extends JPanel {
         footer.setOpaque(false);
         footer.setBorder(new EmptyBorder(16, 16, 16, 16)); // Padding suffisant
 
-        JButton btnLogout = new JButton("Déconnexion", AppIcons.LOG_OUT.get(16, AppColors.STATUS_RED));
+        JButton btnLogout = new AppButton("Déconnexion", AppIcons.LOG_OUT, AppButton.Theme.DANGER);
 
         // 1. Force une hauteur fixe pour le bouton
         btnLogout.setPreferredSize(new Dimension(0, 40));
-
-        // 2. Utilisation de la propriété FlatLaf pour le style (sans arc si géré
-        // globalement)
-        btnLogout.putClientProperty("FlatLaf.style",
-                "background: " + toHex(getBackground()) + "; " +
-                        "foreground: #e2543d; " +
-                        "borderWidth: 1; " +
-                        "borderColor: #e2543d; " +
-                        "margin: 0,10,0,10;");
 
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
