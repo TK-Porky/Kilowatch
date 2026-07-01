@@ -93,8 +93,8 @@ public class CaisseView extends JPanel {
         filterTabsWrapper.add(filterSwitch);
 
         // -- BOUTON DE TRI DYNAMIQUE --
-        String sortBtnLabelAsc = "montant décrois.";
-        String sortBtnLabelDesc = "montant décrois.";
+        String sortBtnLabelAsc = "montant croissant";
+        String sortBtnLabelDesc = "montant décroissant";
         AppButton sortBtn = new AppButton(sortBtnLabelDesc, AppIcons.MOVE_DOWN, AppButton.Theme.SECONDARY);
         sortBtn.setFont(new Font("Inter", Font.PLAIN, 13));
         sortBtn.setPadding(6, 16, 6, 16);
