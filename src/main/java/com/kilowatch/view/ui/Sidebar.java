@@ -25,6 +25,21 @@ public class Sidebar extends JPanel {
         add(createBrandHeader(), BorderLayout.NORTH);
         add(createNavigation(), BorderLayout.CENTER);
         add(createFooter(), BorderLayout.SOUTH);
+
+        // Par défaut, on peut activer le tableau de bord au démarrage
+        setActiveMenu("VIEW_DASHBOARD");
+    }
+
+    /**
+     * Permet de mettre à jour visuellement le bouton actif de la sidebar
+     * depuis un appel externe (ex: MainLayout).
+     */
+    public void setActiveMenu(String viewId) {
+        for (JButton btn : menuButtons) {
+            String btnViewId = (String) btn.getClientProperty("viewId");
+            boolean isActive = viewId.equals(btnViewId);
+            applyButtonStyle(btn, isActive);
+        }
     }
 
     private JPanel createNavigation() {
@@ -33,7 +48,6 @@ public class Sidebar extends JPanel {
         navPanel.setOpaque(false);
         navPanel.setBorder(new EmptyBorder(0, 12, 0, 12));
 
-        // Utilisation de l'Enum AppIcons (automatique et robuste)
         navPanel.add(createMenuButton("Tableau de bord", "VIEW_DASHBOARD", AppIcons.LAYOUT_DASHBOARD));
         navPanel.add(Box.createVerticalStrut(4));
         navPanel.add(createMenuButton("Abonnés", "VIEW_ABONNES", AppIcons.USERS));
@@ -46,16 +60,20 @@ public class Sidebar extends JPanel {
     }
 
     private JButton createMenuButton(String text, String viewId, AppIcons iconEnum) {
-        // Appelle l'Enum pour générer l'icône à la volée
         JButton btn = new JButton(text, iconEnum.get(18, AppColors.TEXT_SECONDARY));
         btn.setHorizontalAlignment(SwingConstants.LEFT);
         btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
 
+        // CRUCIAL : On attache l'ID de la vue au bouton pour pouvoir le retrouver plus
+        // tard
+        btn.putClientProperty("viewId", viewId);
+
         applyButtonStyle(btn, false);
 
         btn.addActionListener(e -> {
-            menuButtons.forEach(b -> applyButtonStyle(b, false));
-            applyButtonStyle(btn, true);
+            // Met à jour visuellement la sélection en local
+            setActiveMenu(viewId);
+            // Déclenche la navigation CardLayout
             onMenuSelected.accept(viewId);
         });
 
@@ -71,7 +89,7 @@ public class Sidebar extends JPanel {
                 "foreground: " + fgColor + "; " +
                 "borderWidth: 0; " +
                 "focusWidth: 0; " +
-                "margin: 8,12,8,12; " + // Marges internes du bouton
+                "margin: 8,12,8,12; " +
                 "hoverBackground: " + toHex(AppColors.BG_SURFACE) + "; " +
                 "hoverForeground: " + toHex(AppColors.TEXT_PRIMARY) + "; " +
                 "font: 13";
@@ -83,20 +101,13 @@ public class Sidebar extends JPanel {
     private JPanel createFooter() {
         JPanel footer = new JPanel(new BorderLayout());
         footer.setOpaque(false);
-        footer.setBorder(new EmptyBorder(16, 16, 16, 16)); // Padding suffisant
+        footer.setBorder(new EmptyBorder(16, 16, 16, 16));
 
         JButton btnLogout = new AppButton("Déconnexion", AppIcons.LOG_OUT, AppButton.Theme.DANGER);
-
-        // 1. Force une hauteur fixe pour le bouton
         btnLogout.setPreferredSize(new Dimension(0, 40));
-
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
-        // 3. Ajouter le bouton au centre du footer
         footer.add(btnLogout, BorderLayout.CENTER);
-
-        // 4. Force la taille du footer pour qu'il ne soit pas "écrasé" par le reste de
-        // la sidebar
         footer.setPreferredSize(new Dimension(220, 70));
 
         return footer;

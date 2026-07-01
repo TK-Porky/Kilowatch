@@ -1,17 +1,16 @@
 package com.kilowatch.view.ui;
 
 import com.kilowatch.view.data.ViewDataService;
+import com.kilowatch.view.data.ViewEnum.*; // <-- Importation globale des Enums sécurisés
 import com.kilowatch.view.data.ViewDto.Abonne;
 import com.kilowatch.view.data.ViewDto.FactureEnAttente;
 import com.kilowatch.view.data.ViewDto.ReleveSession;
 import com.kilowatch.view.data.ViewDto.ActionLog;
 import com.kilowatch.view.data.ViewDto.DashboardStats;
-import com.kilowatch.view.theme.AppColors;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.List;
 
 public class MainLayout extends JFrame {
@@ -31,14 +30,25 @@ public class MainLayout extends JFrame {
     private DefaultTableModel sessionRelevesModel;
     private DefaultTableModel recentActionsModel;
 
+    // Vues promues en attributs pour la synchronisation visuelle depuis la Topbar
+    private AbonnesView viewAbonnes;
     private CaisseView viewCaisse;
     private DashboardView viewDashboard;
 
-    // --- ÉTATS (Uniquement ceux liés à l'interface pure) ---
+    // --- ÉTATS CONFIGURABLES ET TYPÉS DE L'INTERFACE ---
     private int totalSaisiesSession = 0;
     private String releveCurrentCompteur = "";
-    private String currentCaisseFilter = "FILTER_UNPAID";
+
+    // États typés pour les Abonnés
+    private String currentAbonneQuery = "";
+    private FiltreAbonne currentAbonneFilter = FiltreAbonne.FILTER_ALL;
+
+    // États typés pour la Caisse (Mise à jour avec le filtre par catégorie)
+    private FiltreCaisse currentCaisseFilter = FiltreCaisse.FILTER_ALL;
     private boolean currentCaisseSortDesc = true;
+
+    // Constantes d'UI
+    private static final String ACTION_ENCAISSER = "Encaisser";
 
     public MainLayout(ViewDataService dataService) {
         this.dataService = dataService;
@@ -50,24 +60,29 @@ public class MainLayout extends JFrame {
 
         setLayout(new BorderLayout());
 
+        topbar = new Topbar();
         initWorkzone();
 
-        topbar = new Topbar();
         statusbar = new Statusbar();
-        sidebar = new Sidebar(viewId -> {
-            cardLayout.show(workzone, viewId);
-            switch (viewId) {
-                case "VIEW_DASHBOARD" -> topbar.updateTitle("Tableau de bord");
-                case "VIEW_ABONNES" -> topbar.updateTitle("Abonnés & Contrats");
-                case "VIEW_RELEVES" -> topbar.updateTitle("Relevés");
-                case "VIEW_CAISSE" -> topbar.updateTitle("Caisse & Facturation");
-            }
-        });
+        sidebar = new Sidebar(this::navigateToView);
 
         add(sidebar, BorderLayout.WEST);
         add(statusbar, BorderLayout.SOUTH);
         setJMenuBar(topbar);
         add(workzone, BorderLayout.CENTER);
+
+        refreshStatusbar();
+    }
+
+    private void navigateToView(String viewId) {
+        AppView targetView = AppView.fromId(viewId);
+        cardLayout.show(workzone, targetView.getId());
+        topbar.updateTitle(targetView.getTitre());
+
+        // SYNCHRONISATION VISUELLE : Met à jour l'item actif dans la Sidebar
+        if (sidebar != null) {
+            sidebar.setActiveMenu(viewId);
+        }
     }
 
     private void initWorkzone() {
@@ -86,7 +101,7 @@ public class MainLayout extends JFrame {
                 return false;
             }
         };
-        AbonnesView viewAbonnes = new AbonnesView(abonnesModel);
+        viewAbonnes = new AbonnesView(abonnesModel); // Utilisation de l'attribut de classe
         refreshAbonnesTable("");
 
         String[] colCaisse = { "ABONNÉ", "COMPTEUR", "CATÉGORIE", "CONSO (KWH)", "TTC", "STATUT", "" };
@@ -117,31 +132,57 @@ public class MainLayout extends JFrame {
         };
         viewDashboard = new DashboardView(recentActionsModel);
 
-        // Premier affichage du Dashboard (le service a déjà loggé le "Démarrage")
         refreshDashboard();
 
         // =========================================================
-        // CONNEXIONS DES ÉVÉNEMENTS
+        // CONNEXIONS DES ÉVÉNEMENTS DE LA TOPBAR
+        // =========================================================
+
+        topbar.setOnNewAbonneListener(this::openNewAbonneDialog);
+        topbar.setOnGoToRelevesListener(() -> navigateToView(AppView.RELEVES.getId()));
+
+        topbar.setOnGoToImpayesListener(() -> {
+            currentCaisseFilter = FiltreCaisse.FILTER_ALL;
+            refreshCaisseTable();
+
+            // SYNCHRONISATION VISUELLE : Met à jour le SwitchGroup de la Caisse
+            if (viewCaisse != null) {
+                viewCaisse.setSelectedFilter(currentCaisseFilter.name());
+            }
+
+            navigateToView(AppView.CAISSE.getId());
+        });
+
+        topbar.setOnGoToGrosConsommateursListener(() -> {
+            currentAbonneFilter = FiltreAbonne.FILTER_GROS_CONS;
+            refreshAbonnesTable(currentAbonneQuery);
+
+            // SYNCHRONISATION VISUELLE : Met à jour le SwitchGroup des Abonnés
+            if (viewAbonnes != null) {
+                viewAbonnes.setSelectedFilter(currentAbonneFilter.name());
+            }
+
+            navigateToView(AppView.ABONNES.getId());
+        });
+
+        topbar.setOnExportCsvListener(this::triggerCsvExport);
+
+        // =========================================================
+        // CONNEXIONS DES ÉVÉNEMENTS DES VUES ENFANTS
         // =========================================================
 
         // --- VUE ABONNÉS ---
-        viewAbonnes.setOnSearchListener(this::refreshAbonnesTable);
-
-        viewAbonnes.setOnAddAbonneListener(() -> {
-            AbonneFormDialog dialog = new AbonneFormDialog(this);
-            dialog.setOnSaveListener(nouvelAbonne -> {
-                Abonne savedAbonne = dataService.saveAbonne(nouvelAbonne);
-                if (savedAbonne != null) {
-                    abonnesModel.insertRow(0, new Object[] {
-                            savedAbonne.id(), savedAbonne.nom(), savedAbonne.numeroCompteur(),
-                            savedAbonne.categorie(), String.format("%,d", savedAbonne.ancienIndex()).replace(',', ' '),
-                            "—", savedAbonne.statut()
-                    });
-                    refreshDashboard(); // Le service s'est occupé de tout !
-                }
-            });
-            dialog.setVisible(true);
+        viewAbonnes.setOnSearchListener(query -> {
+            this.currentAbonneQuery = query;
+            refreshAbonnesTable(query);
         });
+
+        viewAbonnes.setOnFilterChangedListener(filterId -> {
+            this.currentAbonneFilter = FiltreAbonne.valueOf(filterId);
+            refreshAbonnesTable(currentAbonneQuery);
+        });
+
+        viewAbonnes.setOnAddAbonneListener(this::openNewAbonneDialog);
 
         // --- VUE RELEVÉS ---
         viewReleves.setOnSearchListener(query -> {
@@ -169,9 +210,10 @@ public class MainLayout extends JFrame {
                 viewReleves.updateSessionTable(sessionRelevesModel, totalSaisiesSession);
                 viewReleves.resetToSearchState();
 
-                refreshAbonnesTable("");
+                // Rafraîchit les tables pour afficher la nouvelle conso et la nouvelle facture
+                refreshAbonnesTable(currentAbonneQuery);
                 refreshCaisseTable();
-                refreshDashboard(); // Le service a généré la facture et loggé l'action !
+                refreshDashboard();
 
                 releveCurrentCompteur = "";
             } catch (IllegalArgumentException ex) {
@@ -186,16 +228,15 @@ public class MainLayout extends JFrame {
             boolean success = dataService.encaisserFacture(numeroCompteur);
             if (success) {
                 refreshCaisseTable();
-                refreshAbonnesTable("");
-                refreshDashboard(); // Le service a calculé le CA et loggé l'action !
-
+                refreshAbonnesTable(currentAbonneQuery); // Rafraîchit pour remettre la conso à 0
+                refreshDashboard();
                 JOptionPane.showMessageDialog(this, "Facture encaissée avec succès !", "Caisse Kilowatch",
                         JOptionPane.INFORMATION_MESSAGE);
             }
         });
 
         viewCaisse.setOnFilterChangedListener(filterId -> {
-            currentCaisseFilter = filterId;
+            this.currentCaisseFilter = FiltreCaisse.valueOf(filterId);
             refreshCaisseTable();
         });
 
@@ -204,39 +245,56 @@ public class MainLayout extends JFrame {
             refreshCaisseTable();
         });
 
-        viewCaisse.setOnExportListener(() -> {
-            dataService.registrarAction("Tentative d'export CSV (en développement)");
-            refreshDashboard();
-            JOptionPane.showMessageDialog(this, "L'export CSV sera bientôt implémenté.", "Export CSV",
-                    JOptionPane.INFORMATION_MESSAGE);
-        });
+        viewCaisse.setOnExportListener(this::triggerCsvExport);
 
-        workzone.add(viewDashboard, "VIEW_DASHBOARD");
-        workzone.add(viewAbonnes, "VIEW_ABONNES");
-        workzone.add(viewReleves, "VIEW_RELEVES");
-        workzone.add(viewCaisse, "VIEW_CAISSE");
+        workzone.add(viewDashboard, AppView.DASHBOARD.getId());
+        workzone.add(viewAbonnes, AppView.ABONNES.getId());
+        workzone.add(viewReleves, AppView.RELEVES.getId());
+        workzone.add(viewCaisse, AppView.CAISSE.getId());
     }
 
     // =========================================================
-    // MÉTHODES DE RAFRAÎCHISSEMENT DYNAMIQUES
+    // STATUS BAR SYNCHRONISATION
     // =========================================================
 
-    /**
-     * Récupère les données depuis le DataService et met à jour la vue pure (Dumb
-     * View)
-     */
+    private void refreshStatusbar() {
+        if (statusbar != null) {
+            statusbar.updateStatusbar(dataService.getStatusbarInfo());
+        }
+    }
+
+    // =========================================================
+    // COUCHE DE PRESENTATION PURIFIÉE (DUMB RENDERING)
+    // =========================================================
+
+    private void openNewAbonneDialog() {
+        AbonneFormDialog dialog = new AbonneFormDialog(this);
+        dialog.setOnSaveListener(nouvelAbonne -> {
+            Abonne savedAbonne = dataService.saveAbonne(nouvelAbonne);
+            if (savedAbonne != null) {
+                refreshAbonnesTable(currentAbonneQuery);
+                refreshDashboard();
+            }
+        });
+        dialog.setVisible(true);
+    }
+
+    private void triggerCsvExport() {
+        dataService.registrarAction("Tentative d'export CSV (en développement)");
+        refreshDashboard();
+        JOptionPane.showMessageDialog(this, "L'export CSV sera bientôt implémenté.", "Export CSV",
+                JOptionPane.INFORMATION_MESSAGE);
+    }
+
     private void refreshDashboard() {
         if (viewDashboard == null)
             return;
 
-        // 1. On demande l'état des KPIs au service
         DashboardStats stats = dataService.getDashboardStats();
 
-        // 2. On injecte dans la vue
         String abonneSub = stats.abonnesInscritsCeMois() == 0 ? "Aucun inscrit ce mois"
                 : "+" + stats.abonnesInscritsCeMois() + " inscrit(s) ce mois";
         viewDashboard.updateKpiAbonnes(String.valueOf(stats.totalAbonnes()), abonneSub);
-
         viewDashboard.updateKpiCa(String.format("%,.0f FCFA", stats.chiffreAffaires()).replace(',', ' '),
                 "Total encaissé lors de cette session");
 
@@ -247,7 +305,6 @@ public class MainLayout extends JFrame {
 
         viewDashboard.setChartData(stats.encaissements7DerniersJours());
 
-        // 3. On rafraîchit la table des actions récentes
         recentActionsModel.setRowCount(0);
         for (ActionLog log : dataService.getRecentActions()) {
             recentActionsModel.addRow(new Object[] { log.horodatage(), log.description() });
@@ -256,36 +313,42 @@ public class MainLayout extends JFrame {
 
     private void refreshAbonnesTable(String query) {
         abonnesModel.setRowCount(0);
-        List<Abonne> list = (query == null || query.trim().isEmpty())
-                ? dataService.getAllAbonnes()
-                : dataService.searchAbonnes(query);
+
+        List<Abonne> list = dataService.getFilteredAbonnes(query, currentAbonneFilter.name());
 
         for (Abonne a : list) {
+            // Appel dynamique pour récupérer la consommation réelle en attente !
+            int consoActive = dataService.getConsoEnAttente(a.numeroCompteur());
+            String consoAffichee = (consoActive > 0) ? String.format("%,d", consoActive).replace(',', ' ') : "0";
+
             abonnesModel.addRow(new Object[] {
-                    a.id(), a.nom(), a.numeroCompteur(), a.categorie(),
-                    String.format("%,d", a.ancienIndex()).replace(',', ' '), "—", a.statut()
+                    a.id(),
+                    a.nom(),
+                    a.numeroCompteur(),
+                    a.categorie(),
+                    String.format("%,d", a.ancienIndex()).replace(',', ' '),
+                    consoAffichee,
+                    a.statut()
             });
         }
     }
 
     private void refreshCaisseTable() {
         caisseModel.setRowCount(0);
+
+        List<FactureEnAttente> facturesTraitees = dataService.getFilteredFactures(currentCaisseFilter.name(),
+                currentCaisseSortDesc);
+
         double totalCalcule = 0.0;
-
-        List<FactureEnAttente> factures = new ArrayList<>(dataService.getFacturesEnAttente());
-
-        factures.sort((f1, f2) -> {
-            int cmp = Double.compare(f1.montantTtc(), f2.montantTtc());
-            return currentCaisseSortDesc ? -cmp : cmp;
-        });
-
-        for (FactureEnAttente f : factures) {
-            if (currentCaisseFilter.equals("FILTER_PAID"))
-                continue;
-
+        for (FactureEnAttente f : facturesTraitees) {
             caisseModel.addRow(new Object[] {
-                    f.nomAbonne(), f.numeroCompteur(), f.categorie(), f.consoKwh(),
-                    String.format("%,.0f FCFA", f.montantTtc()).replace(',', ' '), "Impayée", "Encaisser"
+                    f.nomAbonne(),
+                    f.numeroCompteur(),
+                    f.categorie(),
+                    f.consoKwh(),
+                    String.format("%,.0f FCFA", f.montantTtc()).replace(',', ' '),
+                    StatutFacture.IMPAYEE.getLibelle(), // Utilisation propre de l'Enum métier
+                    ACTION_ENCAISSER
             });
             totalCalcule += f.montantTtc();
         }

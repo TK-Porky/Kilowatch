@@ -3,6 +3,7 @@ package com.kilowatch.view.ui;
 import com.kilowatch.view.component.AppButton;
 import com.kilowatch.view.component.SwitchGroup;
 import com.kilowatch.view.component.Table;
+import com.kilowatch.view.data.ViewEnum;
 import com.kilowatch.view.data.ViewEnum.CategorieAbonne;
 import com.kilowatch.view.data.ViewEnum.StatutFacture;
 import com.kilowatch.view.theme.AppColors;
@@ -20,11 +21,14 @@ public class CaisseView extends JPanel {
     private Table table;
     private boolean isSortDescending = true;
 
+    // COMPOSANT PROMU EN ATTRIBUT DE CLASSE POUR LA SYNCHRONISATION
+    private final SwitchGroup filterSwitch;
+
     // --- DÉCLARATION DES CALLBACKS ---
     private Consumer<String> onEncaisserListener;
-    private Consumer<String> onFilterChangedListener; // Pour le SwitchGroup
-    private Consumer<Boolean> onSortChangedListener; // Pour le bouton de tri
-    private Runnable onExportListener; // Pour le bouton d'export CSV
+    private Consumer<String> onFilterChangedListener;
+    private Consumer<Boolean> onSortChangedListener;
+    private Runnable onExportListener;
 
     public CaisseView(TableModel tableModel) {
         setLayout(new BorderLayout());
@@ -52,7 +56,6 @@ public class CaisseView extends JPanel {
         AppButton exportBtn = new AppButton("Exporter le lot CSV", AppIcons.DOWNLOAD, AppButton.Theme.PRIMARY);
         exportBtn.setPreferredSize(new Dimension(300, 42));
 
-        // CONNEXION DU CALLBACK D'EXPORT
         exportBtn.addActionListener(e -> {
             if (onExportListener != null) {
                 onExportListener.run();
@@ -73,12 +76,12 @@ public class CaisseView extends JPanel {
         filtersRow.setOpaque(false);
         filtersRow.setBorder(new EmptyBorder(24, 0, 24, 0));
 
-        SwitchGroup filterSwitch = new SwitchGroup();
-        filterSwitch.addSwitch("FILTER_ALL", "Toutes", false);
-        filterSwitch.addSwitch("FILTER_PAID", "Payées", false);
-        filterSwitch.addSwitch("FILTER_UNPAID", "Impayées", true);
+        // Instanciation de l'attribut de classe
+        this.filterSwitch = new SwitchGroup();
+        for (ViewEnum.FiltreCaisse f : ViewEnum.FiltreCaisse.values()) {
+            filterSwitch.addSwitch(f.name(), f.getLibelle(), f == ViewEnum.FiltreCaisse.FILTER_ALL);
+        }
 
-        // CONNEXION DU CALLBACK DE FILTRE
         filterSwitch.setOnSwitchListener(filterId -> {
             if (onFilterChangedListener != null) {
                 onFilterChangedListener.accept(filterId);
@@ -90,20 +93,20 @@ public class CaisseView extends JPanel {
         filterTabsWrapper.add(filterSwitch);
 
         // -- BOUTON DE TRI DYNAMIQUE --
-        AppButton sortBtn = new AppButton("Trier par montant décroissant", AppIcons.MOVE_DOWN,
-                AppButton.Theme.SECONDARY);
+        String sortBtnLabelAsc = "montant décrois.";
+        String sortBtnLabelDesc = "montant décrois.";
+        AppButton sortBtn = new AppButton(sortBtnLabelDesc, AppIcons.MOVE_DOWN, AppButton.Theme.SECONDARY);
         sortBtn.setFont(new Font("Inter", Font.PLAIN, 13));
         sortBtn.setPadding(6, 16, 6, 16);
-        sortBtn.setPreferredSize(new Dimension(290, 35));
+        sortBtn.setPreferredSize(new Dimension(200, 35));
 
-        // CONNEXION DU CALLBACK DE TRI
         sortBtn.addActionListener(e -> {
             isSortDescending = !isSortDescending;
             if (isSortDescending) {
-                sortBtn.setText("Trier par montant décroissant");
+                sortBtn.setText(sortBtnLabelDesc);
                 sortBtn.setIconEnum(AppIcons.MOVE_DOWN);
             } else {
-                sortBtn.setText("Trier par montant croissant");
+                sortBtn.setText(sortBtnLabelAsc);
                 sortBtn.setIconEnum(AppIcons.MOVE_UP);
             }
 
@@ -142,6 +145,18 @@ public class CaisseView extends JPanel {
         table = new Table(tableModel);
         setupTableColumns();
         add(table.createRoundedContainer(), BorderLayout.CENTER);
+    }
+
+    // --- MÉTHODES PUBLIQUES DE RENDU ET CONFIGURATION ---
+
+    /**
+     * Permet de forcer visuellement la sélection du filtre de caisse depuis
+     * l'extérieur.
+     */
+    public void setSelectedFilter(String filterId) {
+        if (this.filterSwitch != null) {
+            this.filterSwitch.setSelected(filterId);
+        }
     }
 
     public void setTotalAmount(String amount) {

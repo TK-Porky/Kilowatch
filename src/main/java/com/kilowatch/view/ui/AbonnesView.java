@@ -2,9 +2,11 @@ package com.kilowatch.view.ui;
 
 import com.kilowatch.view.component.AppButton;
 import com.kilowatch.view.component.SearchBar;
+import com.kilowatch.view.component.SwitchGroup;
 import com.kilowatch.view.component.Table;
-import com.kilowatch.view.data.ViewEnum.CategorieAbonne; // <-- Import de l'Enum
-import com.kilowatch.view.data.ViewEnum.StatutFacture; // <-- Import de l'Enum
+import com.kilowatch.view.data.ViewEnum;
+import com.kilowatch.view.data.ViewEnum.CategorieAbonne;
+import com.kilowatch.view.data.ViewEnum.StatutFacture;
 import com.kilowatch.view.theme.AppColors;
 import com.kilowatch.view.theme.AppIcons;
 
@@ -19,6 +21,10 @@ public class AbonnesView extends JPanel {
     // --- 1. DÉCLARATION DES CALLBACKS ---
     private Consumer<String> onSearchListener;
     private Runnable onAddAbonneListener;
+    private Consumer<String> onFilterChangedListener;
+
+    // COMPOSANT PROMU EN ATTRIBUT DE CLASSE POUR LA SYNCHRONISATION
+    private final SwitchGroup filterGroup;
 
     public AbonnesView(TableModel tableModel) {
         setLayout(new BorderLayout());
@@ -51,35 +57,49 @@ public class AbonnesView extends JPanel {
         rightButtonContainer.setOpaque(false);
 
         AppButton addAbonneBtn = new AppButton("Nouvel Abonné", AppIcons.USER_PLUS, AppButton.Theme.PRIMARY);
-        
-        // --- CONNEXION DU BOUTON AU CALLBACK ---
+
         addAbonneBtn.addActionListener(e -> {
             if (onAddAbonneListener != null) {
                 onAddAbonneListener.run();
             }
         });
-        
+
         rightButtonContainer.add(addAbonneBtn);
 
-        // Assemblage de l'en-tête
         headerWrapper.add(leftTextsPanel, BorderLayout.WEST);
         headerWrapper.add(rightButtonContainer, BorderLayout.EAST);
 
-        // --- 3. BARRE DE RECHERCHE ---
+        // --- 3. ZONE DE RECHERCHE & FILTRES ---
         SearchBar searchBar = new SearchBar("Recherche par ID, Nom, ou N° de Compteur... (F2)");
-        
-        // --- CONNEXION DE LA RECHERCHE AU CALLBACK ---
         searchBar.setOnSearchListener(query -> {
             if (onSearchListener != null) {
                 onSearchListener.accept(query);
             }
         });
 
-        // Conteneur pour gérer les espacements (Marges)
+        // Instanciation de l'attribut de classe
+        this.filterGroup = new SwitchGroup();
+        for (ViewEnum.FiltreAbonne f : ViewEnum.FiltreAbonne.values()) {
+            filterGroup.addSwitch(f.name(), f.getLibelle(), f == ViewEnum.FiltreAbonne.FILTER_ALL);
+        }
+
+        filterGroup.setOnSwitchListener(filterId -> {
+            if (onFilterChangedListener != null) {
+                onFilterChangedListener.accept(filterId);
+            }
+        });
+
+        // Alignement horizontal de la barre de recherche et du groupe de filtres
+        JPanel searchBarWrapper = new JPanel(new BorderLayout(16, 0));
+        searchBarWrapper.setOpaque(false);
+        searchBarWrapper.add(searchBar, BorderLayout.CENTER);
+        searchBarWrapper.add(filterGroup, BorderLayout.EAST);
+
+        // Conteneur de marge pour la zone de recherche
         JPanel searchContainer = new JPanel(new BorderLayout());
         searchContainer.setOpaque(false);
         searchContainer.setBorder(new EmptyBorder(24, 0, 24, 0));
-        searchContainer.add(searchBar, BorderLayout.CENTER);
+        searchContainer.add(searchBarWrapper, BorderLayout.CENTER);
 
         // --- 4. AJOUT AU PANNEAU NORD ---
         JPanel northPanel = new JPanel(new BorderLayout());
@@ -88,45 +108,56 @@ public class AbonnesView extends JPanel {
         northPanel.add(searchContainer, BorderLayout.CENTER);
         add(northPanel, BorderLayout.NORTH);
 
-        // --- 5. INSTANCIATION DE NOTRE COMPOSANT TABLE ---
+        // --- 5. INSTANCIATION DU COMPOSANT TABLE ---
         Table table = new Table(tableModel);
 
-        // --- 6. CONFIGURATION DES COLONNES SPÉCIFIQUES À CETTE VUE ---
+        // --- 6. CONFIGURATION DES COLONNES SPÉCIFIQUES ---
         Table.BadgeCellRenderer categorieRenderer = new Table.BadgeCellRenderer();
-        
-        // Utilisation de l'Enum CategorieAbonne !
         categorieRenderer.registerStyle(CategorieAbonne.SOCIAL.getLibelle(),
                 new Table.BadgeStyle(new Color(59, 130, 246, 38), Color.decode("#3b82f6")));
         categorieRenderer.registerStyle(CategorieAbonne.RESIDENTIEL.getLibelle(),
                 new Table.BadgeStyle(AppColors.AMBER_SOFT, AppColors.ACCENT_AMBER));
         categorieRenderer.registerStyle(CategorieAbonne.INDUSTRIEL.getLibelle(),
                 new Table.BadgeStyle(new Color(168, 85, 247, 38), Color.decode("#a855f7")));
-        
+
         table.getColumnModel().getColumn(3).setCellRenderer(categorieRenderer);
 
         Table.BadgeCellRenderer statutRenderer = new Table.BadgeCellRenderer();
-        
-        // Utilisation de l'Enum StatutFacture !
-        statutRenderer.registerStyle(StatutFacture.PAYEE.getLibelle(), 
+        statutRenderer.registerStyle(StatutFacture.PAYEE.getLibelle(),
                 new Table.BadgeStyle(AppColors.GREEN_SOFT, AppColors.STATUS_GREEN));
-        statutRenderer.registerStyle(StatutFacture.IMPAYEE.getLibelle(), 
+        statutRenderer.registerStyle(StatutFacture.IMPAYEE.getLibelle(),
                 new Table.BadgeStyle(AppColors.RED_SOFT, AppColors.STATUS_RED));
-        // Bonus : Ajout du style pour le statut "En Attente" (gris neutre)
-        statutRenderer.registerStyle(StatutFacture.EN_ATTENTE.getLibelle(), 
+        statutRenderer.registerStyle(StatutFacture.EN_ATTENTE.getLibelle(),
                 new Table.BadgeStyle(AppColors.BG_SURFACE_2, AppColors.TEXT_SECONDARY));
-        
+
         table.getColumnModel().getColumn(6).setCellRenderer(statutRenderer);
 
-        // --- 7. AJOUT AU PANEL VIA LA MÉTHODE ENCAPSULÉE ---
         add(table.createRoundedContainer(), BorderLayout.CENTER);
     }
 
-    // --- 8. MÉTHODES PUBLIQUES POUR LE MAINLAYOUT ---
+    // --- 7. MÉTHODES PUBLIQUES POUR LE MAINLAYOUT ---
+
+    /**
+     * Permet de forcer visuellement la sélection du filtre depuis l'extérieur (ex:
+     * Topbar)
+     * sans déclencher d'action utilisateur redondante.
+     */
+    public void setSelectedFilter(String filterId) {
+        if (this.filterGroup != null) {
+            // Appelle la méthode de sélection programmée de votre SwitchGroup
+            this.filterGroup.setSelected(filterId);
+        }
+    }
+
     public void setOnSearchListener(Consumer<String> onSearchListener) {
         this.onSearchListener = onSearchListener;
     }
 
     public void setOnAddAbonneListener(Runnable onAddAbonneListener) {
         this.onAddAbonneListener = onAddAbonneListener;
+    }
+
+    public void setOnFilterChangedListener(Consumer<String> onFilterChangedListener) {
+        this.onFilterChangedListener = onFilterChangedListener;
     }
 }

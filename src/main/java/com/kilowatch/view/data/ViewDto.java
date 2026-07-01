@@ -42,4 +42,11 @@ public class ViewDto {
             String horodatage,
             String description) {
     }
+
+    public record StatusbarInfo(
+            String nomAgent,
+            String periodeActive,
+            String statutConnexion,
+            String version) {
+    }
 }

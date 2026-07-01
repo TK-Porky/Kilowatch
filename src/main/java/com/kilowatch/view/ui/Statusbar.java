@@ -4,8 +4,14 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import com.kilowatch.view.theme.AppColors;
+import com.kilowatch.view.data.ViewDto.StatusbarInfo;
 
 public class Statusbar extends JPanel {
+
+    private final JLabel lblAgent;
+    private final JLabel lblPeriod;
+    private final JLabel lblStatus;
+    private final JLabel lblVersion;
 
     public Statusbar() {
         setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
@@ -14,19 +20,17 @@ public class Statusbar extends JPanel {
 
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(1, 0, 0, 0, AppColors.BORDER_SOFT),
-                new EmptyBorder(0, 12, 0, 12))); // Marges latérales globales réduites pour laisser place aux labels
+                new EmptyBorder(0, 12, 0, 12)));
 
-        // --- Création des éléments ---
-        // Ajout d'une marge horizontale interne de 10px (5px de chaque côté)
-        // pour empêcher le contact entre les textes
-        JLabel lblAgent = createLabel("Agent : J. Dupont");
-        JLabel lblPeriod = createLabel("Période active : Mai 2026");
+        // --- Initialisation des composants avec des valeurs par défaut ---
+        lblAgent = createLabel("Agent : —");
+        lblPeriod = createLabel("Période active : —");
 
-        JLabel lblStatus = createLabel("● CSV Connecté");
-        lblStatus.setForeground(AppColors.STATUS_GREEN);
+        lblStatus = createLabel("● Déconnecté");
+        lblStatus.setForeground(AppColors.STATUS_GREEN); // Garde la couleur définie par votre charte
 
-        JLabel lblVersion = createLabel("v1.0.0 - kilowatch");
-        lblVersion.setFont(new Font("Inter", Font.PLAIN, 11)); // Remplacé "IBM Plex Mono" si non installé
+        lblVersion = createLabel("v1.0.0");
+        lblVersion.setFont(new Font("Inter", Font.PLAIN, 11));
 
         // --- Assemblage ---
         add(lblAgent);
@@ -38,15 +42,22 @@ public class Statusbar extends JPanel {
         add(lblVersion);
     }
 
+    /**
+     * Permet de mettre à jour dynamiquement les données textuelles de la barre
+     * d'état.
+     */
+    public void updateStatusbar(StatusbarInfo info) {
+        lblAgent.setText("Agent : " + info.nomAgent());
+        lblPeriod.setText("Période active : " + info.periodeActive());
+        lblStatus.setText(info.statutConnexion());
+        lblVersion.setText(info.version());
+    }
+
     private JLabel createLabel(String text) {
         JLabel label = new JLabel(text);
         label.setFont(new Font("Inter", Font.PLAIN, 12));
         label.setForeground(AppColors.TEXT_SECONDARY);
-
-        // C'est ICI que l'on protège le label :
-        // On ajoute une marge fixe de 10px à gauche et à droite de chaque label
         label.setBorder(new EmptyBorder(0, 10, 0, 10));
-
         return label;
     }
 }

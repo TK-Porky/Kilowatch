@@ -48,6 +48,16 @@ public class SwitchGroup extends JPanel {
     }
 
     /**
+     * Permet de forcer la sélection d'un onglet depuis le code (ex: MainLayout /
+     * Vue parente).
+     * On passe le booléen 'notify' à false pour éviter les boucles d'événements
+     * infinies.
+     */
+    public void setSelected(String id) {
+        setActive(id, false);
+    }
+
+    /**
      * Ajoute un nouvel onglet au switch.
      */
     public void addSwitch(String id, String text, boolean isDefault) {
