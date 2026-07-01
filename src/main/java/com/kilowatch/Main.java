@@ -1,6 +1,7 @@
 package com.kilowatch;
 
 import com.formdev.flatlaf.FlatDarkLaf;
+import com.kilowatch.view.data.MockDataService;
 import com.kilowatch.view.theme.ThemeConfigurator;
 import com.kilowatch.view.ui.MainLayout;
 import javax.swing.*;
@@ -24,7 +25,7 @@ public class Main {
 
         // 4. Lancer l'interface graphique avec barrières de sécurité de taille
         SwingUtilities.invokeLater(() -> {
-            MainLayout app = new MainLayout();
+            MainLayout app = new MainLayout(new MockDataService());
 
             app.setMinimumSize(new Dimension(1150, 720)); // Empêche de réduire en dessous de cette taille
             app.setSize(1280, 800); // Taille par défaut idéale au démarrage

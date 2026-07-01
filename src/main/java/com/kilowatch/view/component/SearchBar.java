@@ -7,11 +7,15 @@ import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.geom.RoundRectangle2D;
+import java.util.function.Consumer; // <-- Import ajouté
 
 public class SearchBar extends JPanel {
 
     private JTextField textField;
-    private String placeholderText; // Renommé pour éviter la confusion
+    private String placeholderText;
+
+    // --- 1. DÉCLARATION DU CALLBACK ---
+    private Consumer<String> onSearchListener;
 
     public SearchBar(String placeholderText) {
         this.placeholderText = placeholderText;
@@ -19,7 +23,7 @@ public class SearchBar extends JPanel {
         setOpaque(false);
         setPreferredSize(new Dimension(0, 42));
 
-        // --- 1. Panneau pour l'icône Loupe ---
+        // --- Panneau pour l'icône Loupe ---
         JPanel iconPanel = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -39,12 +43,11 @@ public class SearchBar extends JPanel {
         iconPanel.setOpaque(false);
         iconPanel.setPreferredSize(new Dimension(48, 42));
 
-        // --- 2. Champ de texte avec gestion du Placeholder ---
+        // --- Champ de texte avec gestion du Placeholder ---
         textField = new JTextField() {
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
-                // On utilise explicitement l'attribut de la classe via le getter
                 if (getText().isEmpty() && !isFocusOwner() && getPlaceholderText() != null) {
                     Graphics2D g2 = (Graphics2D) g.create();
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -53,7 +56,6 @@ public class SearchBar extends JPanel {
                     FontMetrics fm = g2.getFontMetrics();
                     int y = ((getHeight() - fm.getHeight()) / 2) + fm.getAscent();
 
-                    // C'est ici que l'attribut est utilisé
                     g2.drawString(getPlaceholderText(), getInsets().left, y);
                     g2.dispose();
                 }
@@ -78,7 +80,14 @@ public class SearchBar extends JPanel {
             }
         });
 
-        // --- 3. Assemblage ---
+        // --- 2. DÉCLENCHEMENT DU CALLBACK SUR LA TOUCHE "ENTRÉE" ---
+        textField.addActionListener(e -> {
+            if (onSearchListener != null) {
+                onSearchListener.accept(textField.getText());
+            }
+        });
+
+        // --- Assemblage ---
         add(iconPanel, BorderLayout.WEST);
         add(textField, BorderLayout.CENTER);
     }
@@ -98,14 +107,19 @@ public class SearchBar extends JPanel {
         g2.dispose();
     }
 
-    // --- Getters et Setters pour la propriété ---
+    // --- 3. SETTER POUR LE CALLBACK ---
+    public void setOnSearchListener(Consumer<String> onSearchListener) {
+        this.onSearchListener = onSearchListener;
+    }
+
+    // --- Getters et Setters existants ---
     public String getPlaceholderText() {
         return placeholderText;
     }
 
     public void setPlaceholderText(String placeholderText) {
         this.placeholderText = placeholderText;
-        textField.repaint(); // Force le rafraîchissement visuel si on change le texte
+        textField.repaint();
     }
 
     public String getText() {

@@ -195,7 +195,7 @@ public class RelevesView extends JPanel {
 
             // -- CHAMP RECHERCHE --
             searchField = new AppInputField("N° COMPTEUR OU ID ABONNÉ", AppInputField.Variant.SEARCH);
-            searchField.setText("CMP-20007");
+            searchField.putClientProperty("JTextField.placeholderText", "CMP-20007 ...");
 
             c.gridy = 0;
             c.insets = new Insets(0, 0, 16, 0);

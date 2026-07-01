@@ -3,6 +3,8 @@ package com.kilowatch.view.ui;
 import com.kilowatch.view.component.AppButton;
 import com.kilowatch.view.component.SwitchGroup;
 import com.kilowatch.view.component.Table;
+import com.kilowatch.view.data.ViewEnum.CategorieAbonne;
+import com.kilowatch.view.data.ViewEnum.StatutFacture;
 import com.kilowatch.view.theme.AppColors;
 import com.kilowatch.view.theme.AppIcons;
 
@@ -10,19 +12,26 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.TableModel;
 import java.awt.*;
+import java.util.function.Consumer;
 
 public class CaisseView extends JPanel {
 
     private JLabel totalValueLabel;
-    private Table table; // On garde la référence du tableau
-    private boolean isSortDescending = true; // État initial du tri
+    private Table table;
+    private boolean isSortDescending = true;
+
+    // --- DÉCLARATION DES CALLBACKS ---
+    private Consumer<String> onEncaisserListener;
+    private Consumer<String> onFilterChangedListener; // Pour le SwitchGroup
+    private Consumer<Boolean> onSortChangedListener; // Pour le bouton de tri
+    private Runnable onExportListener; // Pour le bouton d'export CSV
 
     public CaisseView(TableModel tableModel) {
         setLayout(new BorderLayout());
         setBackground(AppColors.BG_DEEP);
         setBorder(new EmptyBorder(32, 40, 32, 40));
 
-        // -- COMPOSANT : EN-TÊTE GAUCHE (TEXTES) --
+        // -- EN-TÊTE GAUCHE --
         JPanel headerLeft = new JPanel();
         headerLeft.setLayout(new BoxLayout(headerLeft, BoxLayout.Y_AXIS));
         headerLeft.setOpaque(false);
@@ -39,11 +48,17 @@ public class CaisseView extends JPanel {
         headerLeft.add(Box.createVerticalStrut(8));
         headerLeft.add(subtitleLabel);
 
-        // -- COMPOSANT : BOUTON EXPORT CSV --
+        // -- BOUTON EXPORT CSV --
         AppButton exportBtn = new AppButton("Exporter le lot CSV", AppIcons.DOWNLOAD, AppButton.Theme.PRIMARY);
         exportBtn.setPreferredSize(new Dimension(300, 42));
 
-        // -- CONTENEUR : LIGNE D'EN-TÊTE GLOBAL --
+        // CONNEXION DU CALLBACK D'EXPORT
+        exportBtn.addActionListener(e -> {
+            if (onExportListener != null) {
+                onExportListener.run();
+            }
+        });
+
         JPanel headerRow = new JPanel(new BorderLayout());
         headerRow.setOpaque(false);
         headerRow.add(headerLeft, BorderLayout.WEST);
@@ -53,22 +68,20 @@ public class CaisseView extends JPanel {
         exportPanel.add(exportBtn);
         headerRow.add(exportPanel, BorderLayout.EAST);
 
-        // -- CONTENEUR : LIGNE DES FILTRES ET ACTIONS --
+        // -- FILTRES ET ACTIONS --
         JPanel filtersRow = new JPanel(new BorderLayout());
         filtersRow.setOpaque(false);
         filtersRow.setBorder(new EmptyBorder(24, 0, 24, 0));
 
-        // -- COMPOSANT : COMMUTATEUR D'ONGLETS (SWITCH GROUP) --
         SwitchGroup filterSwitch = new SwitchGroup();
         filterSwitch.addSwitch("FILTER_ALL", "Toutes", false);
         filterSwitch.addSwitch("FILTER_PAID", "Payées", false);
         filterSwitch.addSwitch("FILTER_UNPAID", "Impayées", true);
 
+        // CONNEXION DU CALLBACK DE FILTRE
         filterSwitch.setOnSwitchListener(filterId -> {
-            switch (filterId) {
-                case "FILTER_ALL" -> System.out.println("Afficher toutes les factures");
-                case "FILTER_PAID" -> System.out.println("Afficher uniquement les factures payées");
-                case "FILTER_UNPAID" -> System.out.println("Afficher uniquement les factures impayées");
+            if (onFilterChangedListener != null) {
+                onFilterChangedListener.accept(filterId);
             }
         });
 
@@ -76,29 +89,32 @@ public class CaisseView extends JPanel {
         filterTabsWrapper.setOpaque(false);
         filterTabsWrapper.add(filterSwitch);
 
-        // -- COMPOSANT : BOUTON DE TRI DYNAMIQUE --
+        // -- BOUTON DE TRI DYNAMIQUE --
         AppButton sortBtn = new AppButton("Trier par montant décroissant", AppIcons.MOVE_DOWN,
                 AppButton.Theme.SECONDARY);
         sortBtn.setFont(new Font("Inter", Font.PLAIN, 13));
         sortBtn.setPadding(6, 16, 6, 16);
         sortBtn.setPreferredSize(new Dimension(290, 35));
 
+        // CONNEXION DU CALLBACK DE TRI
         sortBtn.addActionListener(e -> {
             isSortDescending = !isSortDescending;
             if (isSortDescending) {
                 sortBtn.setText("Trier par montant décroissant");
                 sortBtn.setIconEnum(AppIcons.MOVE_DOWN);
-                System.out.println("Action : Tri par montant décroissant");
             } else {
                 sortBtn.setText("Trier par montant croissant");
                 sortBtn.setIconEnum(AppIcons.MOVE_UP);
-                System.out.println("Action : Tri par montant croissant");
+            }
+
+            if (onSortChangedListener != null) {
+                onSortChangedListener.accept(isSortDescending);
             }
         });
 
         filterTabsWrapper.add(sortBtn);
 
-        // -- COMPOSANT : ZONE D'AFFICHAGE DU TOTAL --
+        // -- ZONE D'AFFICHAGE DU TOTAL --
         JPanel totalPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         totalPanel.setOpaque(false);
 
@@ -116,17 +132,15 @@ public class CaisseView extends JPanel {
         filtersRow.add(filterTabsWrapper, BorderLayout.WEST);
         filtersRow.add(totalPanel, BorderLayout.EAST);
 
-        // -- CONTENEUR : ZONE SUPÉRIEURE (EN-TÊTE + FILTRES) --
         JPanel topContainer = new JPanel(new BorderLayout());
         topContainer.setOpaque(false);
         topContainer.add(headerRow, BorderLayout.NORTH);
         topContainer.add(filtersRow, BorderLayout.CENTER);
         add(topContainer, BorderLayout.NORTH);
 
-        // -- COMPOSANT : TABLEAU DE DONNÉES PRINCIPAL --
+        // -- TABLEAU --
         table = new Table(tableModel);
         setupTableColumns();
-
         add(table.createRoundedContainer(), BorderLayout.CENTER);
     }
 
@@ -136,18 +150,20 @@ public class CaisseView extends JPanel {
         }
     }
 
-    /**
-     * Configuration propre du tableau.
-     */
     private void setupTableColumns() {
         Table.BadgeCellRenderer catRenderer = new Table.BadgeCellRenderer();
-        catRenderer.registerStyle("Résidentiel", new Table.BadgeStyle(AppColors.AMBER_SOFT, AppColors.ACCENT_AMBER));
-        catRenderer.registerStyle("Industriel", new Table.BadgeStyle(AppColors.PURPLE_SOFT, AppColors.ACCENT_PURPLE));
-        catRenderer.registerStyle("Social", new Table.BadgeStyle(AppColors.BLUE_SOFT, AppColors.ACCENT_BLUE));
+        catRenderer.registerStyle(CategorieAbonne.RESIDENTIEL.getLibelle(),
+                new Table.BadgeStyle(AppColors.AMBER_SOFT, AppColors.ACCENT_AMBER));
+        catRenderer.registerStyle(CategorieAbonne.INDUSTRIEL.getLibelle(),
+                new Table.BadgeStyle(AppColors.PURPLE_SOFT, AppColors.ACCENT_PURPLE));
+        catRenderer.registerStyle(CategorieAbonne.SOCIAL.getLibelle(),
+                new Table.BadgeStyle(AppColors.BLUE_SOFT, AppColors.ACCENT_BLUE));
 
         Table.BadgeCellRenderer statRenderer = new Table.BadgeCellRenderer();
-        statRenderer.registerStyle("Impayée", new Table.BadgeStyle(AppColors.RED_SOFT, AppColors.STATUS_RED));
-        statRenderer.registerStyle("Payée", new Table.BadgeStyle(AppColors.GREEN_SOFT, AppColors.STATUS_GREEN));
+        statRenderer.registerStyle(StatutFacture.IMPAYEE.getLibelle(),
+                new Table.BadgeStyle(AppColors.RED_SOFT, AppColors.STATUS_RED));
+        statRenderer.registerStyle(StatutFacture.PAYEE.getLibelle(),
+                new Table.BadgeStyle(AppColors.GREEN_SOFT, AppColors.STATUS_GREEN));
 
         for (int i = 0; i < table.getColumnCount(); i++) {
             String colName = table.getColumnName(i);
@@ -162,12 +178,30 @@ public class CaisseView extends JPanel {
                 table.setActionColumn(i, "Encaisser", e -> {
                     int row = Integer.parseInt(e.getActionCommand());
                     if (row != -1) {
-                        String idAbonne = (String) table.getValueAt(row, 0);
-                        System.out.println(
-                                "Action Encaisser cliquée pour l'abonné : " + idAbonne + " (Ligne: " + row + ")");
+                        String numeroCompteur = (String) table.getValueAt(row, 1);
+                        if (onEncaisserListener != null) {
+                            onEncaisserListener.accept(numeroCompteur);
+                        }
                     }
                 });
             }
         }
+    }
+
+    // --- SETTERS POUR LES CALLBACKS ---
+    public void setOnEncaisserListener(Consumer<String> listener) {
+        this.onEncaisserListener = listener;
+    }
+
+    public void setOnFilterChangedListener(Consumer<String> listener) {
+        this.onFilterChangedListener = listener;
+    }
+
+    public void setOnSortChangedListener(Consumer<Boolean> listener) {
+        this.onSortChangedListener = listener;
+    }
+
+    public void setOnExportListener(Runnable listener) {
+        this.onExportListener = listener;
     }
 }

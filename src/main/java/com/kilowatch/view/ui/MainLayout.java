@@ -1,11 +1,18 @@
 package com.kilowatch.view.ui;
 
+import com.kilowatch.view.data.ViewDataService;
+import com.kilowatch.view.data.ViewDto.Abonne;
+import com.kilowatch.view.data.ViewDto.FactureEnAttente;
+import com.kilowatch.view.data.ViewDto.ReleveSession;
+import com.kilowatch.view.data.ViewDto.ActionLog;
+import com.kilowatch.view.data.ViewDto.DashboardStats;
+import com.kilowatch.view.theme.AppColors;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import com.kilowatch.view.theme.AppColors;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainLayout extends JFrame {
 
@@ -15,16 +22,27 @@ public class MainLayout extends JFrame {
     private Sidebar sidebar;
     private Statusbar statusbar;
 
-    // Variables d'état pour la simulation du Mock Relevés
-    private final String mockCompteur = "CMP-20007";
-    private final String mockNom = "Etoa Ekani C.";
-    private final String mockCategorie = "Résidentiel";
-    private final int mockAncienIndex = 3685;
+    // LE MOTEUR DE DONNÉES
+    private final ViewDataService dataService;
 
+    // --- MODÈLES ET VUES GLOBAUX ---
+    private DefaultTableModel abonnesModel;
+    private DefaultTableModel caisseModel;
     private DefaultTableModel sessionRelevesModel;
-    private int totalSaisiesSession = 0;
+    private DefaultTableModel recentActionsModel;
 
-    public MainLayout() {
+    private CaisseView viewCaisse;
+    private DashboardView viewDashboard;
+
+    // --- ÉTATS (Uniquement ceux liés à l'interface pure) ---
+    private int totalSaisiesSession = 0;
+    private String releveCurrentCompteur = "";
+    private String currentCaisseFilter = "FILTER_UNPAID";
+    private boolean currentCaisseSortDesc = true;
+
+    public MainLayout(ViewDataService dataService) {
+        this.dataService = dataService;
+
         setTitle("Kilowatch — Plateforme de Suivi de Consommation");
         setSize(1280, 850);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -32,19 +50,12 @@ public class MainLayout extends JFrame {
 
         setLayout(new BorderLayout());
 
-        // 1. Initialiser le centre (La Workzone) d'abord
         initWorkzone();
 
-        // 2. Initialiser la Barre Supérieure (Topbar)
         topbar = new Topbar();
-
-        // 3. Initialiser la Barre d'État (Statusbar)
         statusbar = new Statusbar();
-
-        // 4. Initialiser la Sidebar avec son écouteur de navigation
         sidebar = new Sidebar(viewId -> {
             cardLayout.show(workzone, viewId);
-
             switch (viewId) {
                 case "VIEW_DASHBOARD" -> topbar.updateTitle("Tableau de bord");
                 case "VIEW_ABONNES" -> topbar.updateTitle("Abonnés & Contrats");
@@ -55,7 +66,6 @@ public class MainLayout extends JFrame {
 
         add(sidebar, BorderLayout.WEST);
         add(statusbar, BorderLayout.SOUTH);
-
         setJMenuBar(topbar);
         add(workzone, BorderLayout.CENTER);
     }
@@ -64,131 +74,224 @@ public class MainLayout extends JFrame {
         cardLayout = new CardLayout();
         workzone = new JPanel(cardLayout);
 
-        // --- Configuration des données dumpées pour les abonnés ---
-        String[] columns = { "ID ABONNÉ", "NOM", "N° COMPTEUR", "CATÉGORIE", "ANCIEN INDEX", "CONSO (KWH)", "STATUT" };
-        Object[][] data = {
-                { "AB-1000", "Ngo Bilong A.", "CMP-20000", "Social", "2 803", "—", "En attente" },
-                { "AB-1001", "Etoa Ekani C.", "CMP-20007", "Résidentiel", "1 433", "135", "Impayée" },
-                { "AB-1002", "Fouda Mballa P.", "CMP-20014", "Résidentiel", "4 955", "218", "Impayée" },
-                { "AB-1003", "Atangana R.", "CMP-20021", "Industriel", "2 940", "—", "En attente" },
-                { "AB-1004", "Mendomo S.", "CMP-20028", "Résidentiel", "3 769", "309", "Payée" },
-                { "AB-1005", "Talla J.", "CMP-20035", "Social", "3 558", "94", "Impayée" }
-        };
+        // =========================================================
+        // INITIALISATION DES MODÈLES ET DES VUES
+        // =========================================================
 
-        DefaultTableModel abonnesModel = new DefaultTableModel(data, columns) {
+        String[] colAbonnes = { "ID ABONNÉ", "NOM", "N° COMPTEUR", "CATÉGORIE", "ANCIEN INDEX", "CONSO (KWH)",
+                "STATUT" };
+        abonnesModel = new DefaultTableModel(colAbonnes, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
+        AbonnesView viewAbonnes = new AbonnesView(abonnesModel);
+        refreshAbonnesTable("");
 
-        String[] columnsC = { "ABONNÉ", "COMPTEUR", "CATÉGORIE", "CONSO (KWH)", "TTC", "STATUT", "" };
-        Object[][] dataC = {
-                { "Njoya K.", "CMP-20098", "Résidentiel", "303", "34 326 FCFA", "Impayée", "Encaisser" },
-                { "Fouda Mballa P.", "CMP-20014", "Résidentiel", "274", "31 041 FCFA", "Impayée", "Encaisser" },
-                { "Sané Aïcha", "CMP-20133", "Résidentiel", "271", "30 701 FCFA", "Impayée", "Encaisser" },
-                { "Etoa Ekani C.", "CMP-20007", "Résidentiel", "105", "11 895 FCFA", "Impayée", "Encaisser" },
-                { "Essama F.", "CMP-20077", "Résidentiel", "75", "8 497 FCFA", "Impayée", "Encaisser" }
-        };
-
-        DefaultTableModel caisseModel = new DefaultTableModel(dataC, columnsC) {
+        String[] colCaisse = { "ABONNÉ", "COMPTEUR", "CATÉGORIE", "CONSO (KWH)", "TTC", "STATUT", "" };
+        caisseModel = new DefaultTableModel(colCaisse, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
+        viewCaisse = new CaisseView(caisseModel);
+        refreshCaisseTable();
 
-        // --- Configuration du modèle de l'historique des relevés (Session) ---
-        String[] columnsR = { "HEURE", "ABONNÉ", "COMPTEUR", "CONSO (KWH)" };
-        sessionRelevesModel = new DefaultTableModel(columnsR, 0) {
+        String[] colReleves = { "HEURE", "ABONNÉ", "COMPTEUR", "CONSO (KWH)" };
+        sessionRelevesModel = new DefaultTableModel(colReleves, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
             }
         };
-
-        // --- Initialisation des Vues ---
-        JPanel viewDashboard = createTempView("Contenu du Tableau de Bord");
-        JPanel viewAbonnes = new AbonnesView(abonnesModel);
-        JPanel viewCaisse = new CaisseView(caisseModel);
-
-        // Instanciation de la vue Releves
         RelevesView viewReleves = new RelevesView();
 
+        String[] colActions = { "HORODATAGE", "ACTION" };
+        recentActionsModel = new DefaultTableModel(colActions, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        viewDashboard = new DashboardView(recentActionsModel);
+
+        // Premier affichage du Dashboard (le service a déjà loggé le "Démarrage")
+        refreshDashboard();
+
         // =========================================================
-        // CONNEXION DES CALLBACKS AVEC LOGIQUE DE MOCK DYNAMIQUE
+        // CONNEXIONS DES ÉVÉNEMENTS
         // =========================================================
 
-        // 1. Callback de Recherche de compteur [Entrée]
+        // --- VUE ABONNÉS ---
+        viewAbonnes.setOnSearchListener(this::refreshAbonnesTable);
+
+        viewAbonnes.setOnAddAbonneListener(() -> {
+            AbonneFormDialog dialog = new AbonneFormDialog(this);
+            dialog.setOnSaveListener(nouvelAbonne -> {
+                Abonne savedAbonne = dataService.saveAbonne(nouvelAbonne);
+                if (savedAbonne != null) {
+                    abonnesModel.insertRow(0, new Object[] {
+                            savedAbonne.id(), savedAbonne.nom(), savedAbonne.numeroCompteur(),
+                            savedAbonne.categorie(), String.format("%,d", savedAbonne.ancienIndex()).replace(',', ' '),
+                            "—", savedAbonne.statut()
+                    });
+                    refreshDashboard(); // Le service s'est occupé de tout !
+                }
+            });
+            dialog.setVisible(true);
+        });
+
+        // --- VUE RELEVÉS ---
         viewReleves.setOnSearchListener(query -> {
-            if (query.equalsIgnoreCase(mockCompteur) || query.toLowerCase().contains("etoa")) {
-                // Simule la découverte de l'abonné ciblé
-                viewReleves.setSubscriberFoundState(mockCompteur, mockNom, mockCategorie, mockAncienIndex);
+            Abonne abonne = dataService.findAbonneForReleve(query);
+            if (abonne != null) {
+                releveCurrentCompteur = abonne.numeroCompteur();
+                viewReleves.setSubscriberFoundState(abonne.numeroCompteur(), abonne.nom(), abonne.categorie(),
+                        abonne.ancienIndex());
             } else {
-                // Feedback si le matricule n'est pas le bon (pour aider le test)
-                JOptionPane.showMessageDialog(this,
-                        "Abonné introuvable.\n(Pour tester le mock, veuillez saisir : CMP-20007)",
-                        "Kilowatch Simulation",
+                JOptionPane.showMessageDialog(this, "Abonné introuvable.", "Kilowatch",
                         JOptionPane.INFORMATION_MESSAGE);
             }
         });
 
-        // 2. Callback de Validation du nouvel index
         viewReleves.setOnValidateIndexListener(nouvelIndex -> {
-            int consommation = nouvelIndex - mockAncienIndex;
+            try {
+                ReleveSession session = dataService.validerNouvelIndex(releveCurrentCompteur, nouvelIndex);
 
-            // Protection anti-index inférieur (Le composant passe déjà en rouge, mais on
-            // bloque la validation)
-            if (consommation < 0) {
-                JOptionPane.showMessageDialog(this,
-                        "Impossible de valider : Le nouvel index est inférieur à l'ancien !",
-                        "Erreur de saisie",
-                        JOptionPane.ERROR_MESSAGE);
-                return;
+                sessionRelevesModel.insertRow(0, new Object[] {
+                        session.heure(), session.nomAbonne(), session.numeroCompteur(),
+                        String.format("%,d", session.consoKwh()).replace(',', ' ')
+                });
+
+                totalSaisiesSession++;
+                viewReleves.updateSessionTable(sessionRelevesModel, totalSaisiesSession);
+                viewReleves.resetToSearchState();
+
+                refreshAbonnesTable("");
+                refreshCaisseTable();
+                refreshDashboard(); // Le service a généré la facture et loggé l'action !
+
+                releveCurrentCompteur = "";
+            } catch (IllegalArgumentException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Erreur de saisie", JOptionPane.ERROR_MESSAGE);
             }
-
-            // Génération de l'heure système réelle du relevé
-            String heureActuelle = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-
-            // Injection de la ligne calculée dans le modèle partagé
-            sessionRelevesModel.insertRow(0, new Object[] {
-                    heureActuelle,
-                    mockNom,
-                    mockCompteur,
-                    String.format("%,d", consommation).replace(',', ' ')
-            });
-
-            totalSaisiesSession++;
-
-            // Notification de mise à jour des structures de données à la vue secondaire
-            viewReleves.updateSessionTable(sessionRelevesModel, totalSaisiesSession);
-
-            // Retour automatique à l'état initial d'attente de scan
-            viewReleves.resetToSearchState();
         });
 
-        // 3. Callback d'annulation ou changement d'abonné ciblée
-        viewReleves.setOnChangeSubscriberListener(() -> {
-            // Logique de nettoyage annexe si nécessaire
-            System.out.println("Changement d'abonné requis par l'opérateur.");
+        viewReleves.setOnChangeSubscriberListener(() -> releveCurrentCompteur = "");
+
+        // --- VUE CAISSE ---
+        viewCaisse.setOnEncaisserListener(numeroCompteur -> {
+            boolean success = dataService.encaisserFacture(numeroCompteur);
+            if (success) {
+                refreshCaisseTable();
+                refreshAbonnesTable("");
+                refreshDashboard(); // Le service a calculé le CA et loggé l'action !
+
+                JOptionPane.showMessageDialog(this, "Facture encaissée avec succès !", "Caisse Kilowatch",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
         });
 
-        // --- Enregistrement dans la zone d'affichage (Workzone) ---
+        viewCaisse.setOnFilterChangedListener(filterId -> {
+            currentCaisseFilter = filterId;
+            refreshCaisseTable();
+        });
+
+        viewCaisse.setOnSortChangedListener(isDescending -> {
+            currentCaisseSortDesc = isDescending;
+            refreshCaisseTable();
+        });
+
+        viewCaisse.setOnExportListener(() -> {
+            dataService.registrarAction("Tentative d'export CSV (en développement)");
+            refreshDashboard();
+            JOptionPane.showMessageDialog(this, "L'export CSV sera bientôt implémenté.", "Export CSV",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
+
         workzone.add(viewDashboard, "VIEW_DASHBOARD");
         workzone.add(viewAbonnes, "VIEW_ABONNES");
         workzone.add(viewReleves, "VIEW_RELEVES");
         workzone.add(viewCaisse, "VIEW_CAISSE");
     }
 
-    private JPanel createTempView(String title) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBackground(AppColors.BG_DEEP);
+    // =========================================================
+    // MÉTHODES DE RAFRAÎCHISSEMENT DYNAMIQUES
+    // =========================================================
 
-        JLabel label = new JLabel(title);
-        label.setFont(new Font("Inter", Font.PLAIN, 16));
-        label.setForeground(AppColors.TEXT_SECONDARY);
+    /**
+     * Récupère les données depuis le DataService et met à jour la vue pure (Dumb
+     * View)
+     */
+    private void refreshDashboard() {
+        if (viewDashboard == null)
+            return;
 
-        panel.add(label);
-        return panel;
+        // 1. On demande l'état des KPIs au service
+        DashboardStats stats = dataService.getDashboardStats();
+
+        // 2. On injecte dans la vue
+        String abonneSub = stats.abonnesInscritsCeMois() == 0 ? "Aucun inscrit ce mois"
+                : "+" + stats.abonnesInscritsCeMois() + " inscrit(s) ce mois";
+        viewDashboard.updateKpiAbonnes(String.valueOf(stats.totalAbonnes()), abonneSub);
+
+        viewDashboard.updateKpiCa(String.format("%,.0f FCFA", stats.chiffreAffaires()).replace(',', ' '),
+                "Total encaissé lors de cette session");
+
+        int pourcentage = stats.totalFactures() == 0 ? 0
+                : (int) Math.round(((double) stats.facturesPayees() / stats.totalFactures()) * 100);
+        viewDashboard.updateKpiRecouvrement(pourcentage + "%",
+                stats.facturesPayees() + " factures payées sur " + stats.totalFactures());
+
+        viewDashboard.setChartData(stats.encaissements7DerniersJours());
+
+        // 3. On rafraîchit la table des actions récentes
+        recentActionsModel.setRowCount(0);
+        for (ActionLog log : dataService.getRecentActions()) {
+            recentActionsModel.addRow(new Object[] { log.horodatage(), log.description() });
+        }
+    }
+
+    private void refreshAbonnesTable(String query) {
+        abonnesModel.setRowCount(0);
+        List<Abonne> list = (query == null || query.trim().isEmpty())
+                ? dataService.getAllAbonnes()
+                : dataService.searchAbonnes(query);
+
+        for (Abonne a : list) {
+            abonnesModel.addRow(new Object[] {
+                    a.id(), a.nom(), a.numeroCompteur(), a.categorie(),
+                    String.format("%,d", a.ancienIndex()).replace(',', ' '), "—", a.statut()
+            });
+        }
+    }
+
+    private void refreshCaisseTable() {
+        caisseModel.setRowCount(0);
+        double totalCalcule = 0.0;
+
+        List<FactureEnAttente> factures = new ArrayList<>(dataService.getFacturesEnAttente());
+
+        factures.sort((f1, f2) -> {
+            int cmp = Double.compare(f1.montantTtc(), f2.montantTtc());
+            return currentCaisseSortDesc ? -cmp : cmp;
+        });
+
+        for (FactureEnAttente f : factures) {
+            if (currentCaisseFilter.equals("FILTER_PAID"))
+                continue;
+
+            caisseModel.addRow(new Object[] {
+                    f.nomAbonne(), f.numeroCompteur(), f.categorie(), f.consoKwh(),
+                    String.format("%,.0f FCFA", f.montantTtc()).replace(',', ' '), "Impayée", "Encaisser"
+            });
+            totalCalcule += f.montantTtc();
+        }
+
+        if (viewCaisse != null) {
+            viewCaisse.setTotalAmount(String.format("%,.0f FCFA", totalCalcule).replace(',', ' '));
+        }
     }
 }
