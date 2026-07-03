@@ -280,10 +280,61 @@ public class MainLayout extends JFrame {
     }
 
     private void triggerCsvExport() {
-        dataService.registrarAction("Tentative d'export CSV (en développement)");
+        // Lancement d'un export CSV asynchrone via l'AbonneRepository si disponible
+        dataService.registrarAction("Export CSV démarré");
         refreshDashboard();
-        JOptionPane.showMessageDialog(this, "L'export CSV sera bientôt implémenté.", "Export CSV",
-                JOptionPane.INFORMATION_MESSAGE);
+
+        // Tentative de découverte de l'executor et du repository via le service
+        try {
+            // On suppose que l'implémentation expose getIoExecutor() et un AbonneRepository
+            java.lang.reflect.Method repoMethod = dataService.getClass().getMethod("getRepository");
+            Object repo = repoMethod.invoke(dataService);
+            java.lang.reflect.Method exportAsync = repo.getClass().getMethod("exporterFacturesImpayeesAsync", java.util.List.class, java.util.function.Consumer.class, java.util.concurrent.Executor.class);
+
+            // Prépare l'executor depuis MockDataService si exposé
+            java.util.concurrent.Executor executor = null;
+            try {
+                java.lang.reflect.Method exMethod = dataService.getClass().getMethod("getIoExecutor");
+                executor = (java.util.concurrent.Executor) exMethod.invoke(dataService);
+            } catch (NoSuchMethodException ignored) {
+            }
+
+            if (executor == null) executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+            java.util.concurrent.Executor finalexecutor = executor;
+            // Progress UI
+            statusbar.startTask("Export CSV en cours...", true, () -> {
+                // cancellation will interrupt the thread by shutting down the executor if possible
+                if (finalexecutor instanceof java.util.concurrent.ExecutorService) {
+                    ((java.util.concurrent.ExecutorService) finalexecutor).shutdownNow();
+                }
+            });
+
+            // Récupère toutes les factures depuis le service pour l'export
+            java.util.List<?> allFactures = (java.util.List<?>) dataService.getClass().getMethod("getFacturesEnAttente").invoke(dataService);
+
+            java.util.concurrent.CompletableFuture<Integer> fut = (java.util.concurrent.CompletableFuture<Integer>) exportAsync.invoke(repo, allFactures, (java.util.function.Consumer<Integer>) (pct) -> {
+                statusbar.updateProgress(pct);
+            }, finalexecutor);
+
+            fut.whenComplete((count, err) -> {
+                statusbar.endTask();
+                if (err != null) {
+                    dataService.registrarAction("Export CSV échoué : " + err.getMessage());
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Erreur durant l'export CSV.", "Export CSV", JOptionPane.ERROR_MESSAGE));
+                } else {
+                    dataService.registrarAction("Export CSV terminé : " + count + " ligne(s)");
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Export CSV terminé : " + count + " ligne(s)", "Export CSV", JOptionPane.INFORMATION_MESSAGE));
+                }
+                refreshDashboard();
+            });
+
+        } catch (Exception ex) {
+            // Fallback : notifier l'utilisateur
+            dataService.registrarAction("Tentative d'export CSV (échec découverte) : " + ex.getMessage());
+            refreshDashboard();
+            JOptionPane.showMessageDialog(this, "Impossible de lancer l'export CSV (implémentation manquante).", "Export CSV",
+                    JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void refreshDashboard() {

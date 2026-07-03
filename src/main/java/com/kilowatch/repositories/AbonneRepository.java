@@ -6,6 +6,9 @@ import com.kilowatch.model.Facture;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /**
  * Gère la persistance des données KiloWatch.
@@ -20,7 +23,7 @@ public class AbonneRepository {
     private static final String FICHIER_CSV    = DOSSIER_DATA + "factures_impayees.csv";
 
     // ── Séparateur CSV
-    private static final String SEPARATEUR     = ";";
+    private static final String SEPARATEUR     = "|";
 
   
     public static class DonneesKiloWatch implements Serializable {
@@ -72,7 +75,6 @@ public class AbonneRepository {
         try (ObjectInputStream ois = new ObjectInputStream(
                 new FileInputStream(FICHIER_SER))) {
 
-            @SuppressWarnings("unchecked")
             DonneesKiloWatch donnees = (DonneesKiloWatch) ois.readObject();
 
             System.out.println("[Persistance] Chargement réussi ← " + FICHIER_SER);
@@ -92,61 +94,73 @@ public class AbonneRepository {
         return new DonneesKiloWatch(new ArrayList<>(), new ArrayList<>());
     }
 
-   
-    public int exporterFacturesImpayees(List<Facture> factures) {
-        creerDossierSiAbsent();
 
-        // Filtrer uniquement les factures impayées
-        List<Facture> impayees = new ArrayList<>();
-        for (Facture f : factures) {
-            if (!f.isPayee()) {
-                impayees.add(f);
+    /**
+     * Version asynchrone de l'export CSV. Le callback `progressCallback` reçoit
+     * un entier représentant le pourcentage d'avancement.
+     */
+    public CompletableFuture<Integer> exporterFacturesImpayeesAsync(List<Facture> factures,
+            Consumer<Integer> progressCallback, Executor executor) {
+        return CompletableFuture.supplyAsync(() -> {
+            creerDossierSiAbsent();
+
+            List<Facture> impayees = new ArrayList<>();
+            for (Facture f : factures) {
+                if (!f.isPayee()) impayees.add(f);
             }
-        }
 
-        if (impayees.isEmpty()) {
-            System.out.println("[Export CSV] Aucune facture impayée à exporter.");
-            return 0;
-        }
+            if (impayees.isEmpty()) {
+                if (progressCallback != null) progressCallback.accept(100);
+                return 0;
+            }
 
-        try (BufferedWriter writer = new BufferedWriter(
-                new FileWriter(FICHIER_CSV))) {
-
-           
-            writer.write(
-                "id" + SEPARATEUR +
-                "idAbonne" + SEPARATEUR +
-                "categorie" + SEPARATEUR +
-                "consommation_kWh" + SEPARATEUR +
-                "montantHT_FCFA" + SEPARATEUR +
-                "montantTVA_FCFA" + SEPARATEUR +
-                "montantTTC_FCFA" + SEPARATEUR +
-                "dateEmission"
-            );
-            writer.newLine();
-
-            for (Facture f : impayees) {
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(FICHIER_CSV))) {
                 writer.write(
-                    f.getId()                              + SEPARATEUR +
-                    f.getIdAbonne()                        + SEPARATEUR +
-                    f.getCategorieAbonne()                 + SEPARATEUR +
-                    String.format("%.2f", f.getConsommationKWh()) + SEPARATEUR +
-                    String.format("%.2f", f.getMontantHT())       + SEPARATEUR +
-                    String.format("%.2f", f.getMontantTVA())      + SEPARATEUR +
-                    String.format("%.2f", f.getMontantTTC())      + SEPARATEUR +
-                    f.getDateEmission().toString()
+                        "id" + SEPARATEUR +
+                        "idAbonne" + SEPARATEUR +
+                        "categorie" + SEPARATEUR +
+                        "consommation_kWh" + SEPARATEUR +
+                        "montantHT_FCFA" + SEPARATEUR +
+                        "montantTVA_FCFA" + SEPARATEUR +
+                        "montantTTC_FCFA" + SEPARATEUR +
+                        "dateEmission"
                 );
                 writer.newLine();
+
+                int total = impayees.size();
+                for (int i = 0; i < total; i++) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        // cancellation requested
+                        return 0;
+                    }
+                    Facture f = impayees.get(i);
+                    writer.write(
+                        f.getId() + SEPARATEUR +
+                        f.getIdAbonne() + SEPARATEUR +
+                        f.getCategorieAbonne() + SEPARATEUR +
+                        String.format("%.2f", f.getConsommationKWh()) + SEPARATEUR +
+                        String.format("%.2f", f.getMontantHT()) + SEPARATEUR +
+                        String.format("%.2f", f.getMontantTVA()) + SEPARATEUR +
+                        String.format("%.2f", f.getMontantTTC()) + SEPARATEUR +
+                        f.getDateEmission().toString()                        
+                    );
+                    writer.newLine();
+
+                    if (progressCallback != null) {
+                        int pct = (int) Math.round(((i + 1) / (double) total) * 100);
+                        progressCallback.accept(pct);
+                    }
+                    
+                }
+
+                System.out.println("[Export CSV] Export réussi → " + FICHIER_CSV);
+                return impayees.size();
+
+            } catch (IOException e) {
+                System.err.println("[Export CSV] Erreur lors de l'export : " + e.getMessage());
+                return 0;
             }
-
-            System.out.println("[Export CSV] Export réussi → " + FICHIER_CSV);
-            System.out.println("             " + impayees.size() + " facture(s) impayée(s) exportée(s).");
-            return impayees.size();
-
-        } catch (IOException e) {
-            System.err.println("[Export CSV] Erreur lors de l'export : " + e.getMessage());
-            return 0;
-        }
+        }, executor);
     }
 
   

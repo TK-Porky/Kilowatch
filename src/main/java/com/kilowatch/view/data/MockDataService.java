@@ -15,13 +15,28 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executor;
 
 public class MockDataService implements ViewDataService {
 
     private final List<Abonne> abonnesDb;
     private final List<FactureEnAttente> facturesDb;
-    private final List<ActionLog> recentActions = new ArrayList<>();
+    // thread-safe list for recent actions
+    private final List<ActionLog> recentActions = new CopyOnWriteArrayList<>();
+
+    // single-threaded executor to serialize IO / mutations
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor();
 
     private double chiffreAffairesSession = 51450.0;
     private int abonnesInscritsCeMois = 0;
@@ -124,31 +139,40 @@ public class MockDataService implements ViewDataService {
 
     @Override
     public boolean encaisserFacture(String numeroCompteur) {
-        double montantSaisi = 0;
-        for (FactureEnAttente f : facturesDb) {
-            if (f.numeroCompteur().equals(numeroCompteur)) {
-                montantSaisi = f.montantTtc();
-                break;
-            }
-        }
-
-        boolean success = facturesDb.removeIf(f -> f.numeroCompteur().equals(numeroCompteur));
-
-        if (success) {
-            chiffreAffairesSession += montantSaisi;
-            facturesPayees++; // <-- INCREMENTATION DYNAMIQUE
-
-            for (int i = 0; i < abonnesDb.size(); i++) {
-                Abonne a = abonnesDb.get(i);
-                if (a.numeroCompteur().equals(numeroCompteur)) {
-                    abonnesDb.set(i, new Abonne(a.id(), a.nom(), a.numeroCompteur(), a.categorie(), a.ancienIndex(),
-                            StatutFacture.PAYEE.getLibelle()));
+        // perform mutation on single-thread executor to avoid concurrent writes
+        CompletableFuture<Boolean> fut = CompletableFuture.supplyAsync(() -> {
+            double montantSaisi = 0;
+            for (FactureEnAttente f : facturesDb) {
+                if (f.numeroCompteur().equals(numeroCompteur)) {
+                    montantSaisi = f.montantTtc();
+                    break;
                 }
             }
-            registrarAction("Encaissement enregistré : " + numeroCompteur + " (+" + String.format("%,.0f", montantSaisi)
-                    + " FCFA)");
+
+            boolean success = facturesDb.removeIf(f -> f.numeroCompteur().equals(numeroCompteur));
+
+            if (success) {
+                chiffreAffairesSession += montantSaisi;
+                facturesPayees++;
+
+                for (int i = 0; i < abonnesDb.size(); i++) {
+                    Abonne a = abonnesDb.get(i);
+                    if (a.numeroCompteur().equals(numeroCompteur)) {
+                        abonnesDb.set(i, new Abonne(a.id(), a.nom(), a.numeroCompteur(), a.categorie(), a.ancienIndex(),
+                                StatutFacture.PAYEE.getLibelle()));
+                    }
+                }
+                registrarAction("Encaissement enregistré : " + numeroCompteur + " (+" + String.format("%,.0f", montantSaisi)
+                        + " FCFA)");
+            }
+            return success;
+        }, ioExecutor);
+
+        try {
+            return fut.get();
+        } catch (Exception e) {
+            return false;
         }
-        return success;
     }
 
     @Override
@@ -174,22 +198,26 @@ public class MockDataService implements ViewDataService {
         double prixKwh = abonne.categorie().equalsIgnoreCase(CategorieAbonne.SOCIAL.getLibelle()) ? 50.0 : 113.0;
         double montantCalcule = conso * prixKwh;
 
-        facturesDb.add(0,
+        // serialize mutation through executor to keep invariants
+        ioExecutor.execute(() -> {
+            facturesDb.add(0,
                 new FactureEnAttente(abonne.nom(), abonne.numeroCompteur(), abonne.categorie(), conso, montantCalcule));
 
-        totalFactures++; // <-- INCREMENTATION DYNAMIQUE
+            totalFactures++;
 
-        for (int i = 0; i < abonnesDb.size(); i++) {
+            for (int i = 0; i < abonnesDb.size(); i++) {
             if (abonnesDb.get(i).numeroCompteur().equals(numeroCompteur)) {
                 Abonne old = abonnesDb.get(i);
                 abonnesDb.set(i, new Abonne(old.id(), old.nom(), old.numeroCompteur(), old.categorie(),
-                        old.ancienIndex(), StatutFacture.IMPAYEE.getLibelle()));
+                    old.ancienIndex(), StatutFacture.IMPAYEE.getLibelle()));
             }
-        }
+            }
 
-        registrarAction("Index validé pour le " + abonne.numeroCompteur() + " (+" + conso + " kWh)");
+            registrarAction("Index validé pour le " + abonne.numeroCompteur() + " (+" + conso + " kWh)");
+        });
+
         return new ReleveSession(LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), abonne.nom(),
-                abonne.numeroCompteur(), conso);
+            abonne.numeroCompteur(), conso);
     }
 
     @Override
@@ -233,5 +261,66 @@ public class MockDataService implements ViewDataService {
     @Override
     public StatusbarInfo getStatusbarInfo() {
         return new StatusbarInfo("J. Dupont", "Juillet 2026", "● CSV Connecté", "v1.0.0 - kilowatch");
+    }
+
+    /**
+     * Retourne un objet repository (ici même service) pour compatibilité avec la
+     * découverte par réflexion dans MainLayout.
+     */
+    public Object getRepository() {
+        return this;
+    }
+
+    /**
+     * Export CSV asynchrone (utilisé par MainLayout via réflexion). Prend une
+     * liste (ignorée, on utilise la liste interne), un callback de progression
+     * et un executor.
+     */
+    public CompletableFuture<Integer> exporterFacturesImpayeesAsync(List<?> ignored, Consumer<Integer> progressCallback, Executor executor) {
+        return CompletableFuture.supplyAsync(() -> {
+            // assure dossier
+            File dossier = new File("data");
+            if (!dossier.exists()) dossier.mkdirs();
+
+            List<FactureEnAttente> impayees = new ArrayList<>(facturesDb);
+            if (impayees.isEmpty()) {
+                if (progressCallback != null) progressCallback.accept(100);
+                return 0;
+            }
+
+            File out = new File(dossier, "factures_impayees.csv");
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(out))) {
+                writer.write("nom;numeroCompteur;categorie;consommation_kWh;montantTTC_FCFA");
+                writer.newLine();
+
+                int total = impayees.size();
+                for (int i = 0; i < total; i++) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        return 0;
+                    }
+                    FactureEnAttente f = impayees.get(i);
+                    writer.write(f.nomAbonne() + ";" + f.numeroCompteur() + ";" + f.categorie() + ";" + f.consoKwh() + ";" + String.format("%,.0f", f.montantTtc()).replace(',', ' '));
+                    writer.newLine();
+
+                    if (progressCallback != null) {
+                        int pct = (int) Math.round(((i + 1) / (double) total) * 100);
+                        progressCallback.accept(pct);
+                    }
+
+                    // slight pause to make progress visible during tests
+                    try { TimeUnit.MILLISECONDS.sleep(10); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return 0; }
+                }
+
+                return impayees.size();
+            } catch (IOException e) {
+                System.err.println("[MockDataService] Erreur export CSV: " + e.getMessage());
+                return 0;
+            }
+        }, executor);
+    }
+
+    // allow access to the executor for async operations
+    public ExecutorService getIoExecutor() {
+        return ioExecutor;
     }
 }
