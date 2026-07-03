@@ -1,5 +1,6 @@
 package com.kilowatch.view.ui;
 
+import com.kilowatch.view.component.ExportProgressDialog;
 import com.kilowatch.view.data.ViewDataService;
 import com.kilowatch.view.data.ViewEnum.*; // <-- Importation globale des Enums sécurisés
 import com.kilowatch.view.data.ViewDto.Abonne;
@@ -9,8 +10,10 @@ import com.kilowatch.view.data.ViewDto.ActionLog;
 import com.kilowatch.view.data.ViewDto.DashboardStats;
 
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.io.File;
 import java.util.List;
 
 public class MainLayout extends JFrame {
@@ -64,7 +67,7 @@ public class MainLayout extends JFrame {
         initWorkzone();
 
         statusbar = new Statusbar();
-        sidebar = new Sidebar(this::navigateToView);
+        sidebar = new Sidebar(this::navigateToView, this::logout);
 
         add(sidebar, BorderLayout.WEST);
         add(statusbar, BorderLayout.SOUTH);
@@ -86,6 +89,31 @@ public class MainLayout extends JFrame {
 
         if (targetView == AppView.DASHBOARD) {
             refreshDashboard();
+        }
+    }
+
+    private void logout() {
+        // Demande de confirmation
+        int reponse = JOptionPane.showConfirmDialog(
+                this,
+                "Voulez-vous vraiment vous déconnecter ?",
+                "Déconnexion",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+
+        if (reponse == JOptionPane.YES_OPTION) {
+            // 1. On informe le service de la déconnexion
+            dataService.deconnecter();
+
+            // 2. On ferme proprement la fenêtre principale
+            this.dispose();
+
+            // 3. (Optionnel) Si vous voulez relancer l'application complètement
+            // pour retomber sur le LoginDialog, vous pouvez simplement faire :
+            // Main.main(new String[0]);
+
+            // Ou si vous préférez quitter totalement :
+            System.exit(0);
         }
     }
 
@@ -170,6 +198,7 @@ public class MainLayout extends JFrame {
         });
 
         topbar.setOnExportCsvListener(this::triggerCsvExport);
+        topbar.setOnLogoutListener(this::logout);
 
         // =========================================================
         // CONNEXIONS DES ÉVÉNEMENTS DES VUES ENFANTS
@@ -284,61 +313,65 @@ public class MainLayout extends JFrame {
     }
 
     private void triggerCsvExport() {
-        // Lancement d'un export CSV asynchrone via l'AbonneRepository si disponible
-        dataService.registrarAction("Export CSV démarré");
+        // 1. Configuration et ouverture du sélecteur de fichier standard
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Enregistrer l'export des impayés");
+
+        FileNameExtensionFilter filter = new FileNameExtensionFilter("Fichiers CSV (*.csv)", "csv");
+        fileChooser.setFileFilter(filter);
+        fileChooser.setSelectedFile(new File("factures_impayees_" + java.time.LocalDate.now() + ".csv"));
+
+        if (fileChooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return; // Annulation de l'utilisateur
+        }
+
+        // Récupération et sécurisation de l'extension .csv
+        File fileToSave = fileChooser.getSelectedFile();
+        if (!fileToSave.getName().toLowerCase().endsWith(".csv")) {
+            fileToSave = new File(fileToSave.getAbsolutePath() + ".csv");
+        }
+
+        final File finalFile = fileToSave;
+        dataService.registrarAction("Lancement export CSV vers : " + finalFile.getName());
         refreshDashboard();
 
-        // Tentative de découverte de l'executor et du repository via le service
-        try {
-            // On suppose que l'implémentation expose getIoExecutor() et un AbonneRepository
-            java.lang.reflect.Method repoMethod = dataService.getClass().getMethod("getRepository");
-            Object repo = repoMethod.invoke(dataService);
-            java.lang.reflect.Method exportAsync = repo.getClass().getMethod("exporterFacturesImpayeesAsync", java.util.List.class, java.util.function.Consumer.class, java.util.concurrent.Executor.class);
+        // 2. Instanciation du nouveau composant modulaire
+        ExportProgressDialog progressDialog = new ExportProgressDialog(this, "Kilowatch — Exportation");
 
-            // Prépare l'executor depuis MockDataService si exposé
-            java.util.concurrent.Executor executor = null;
-            try {
-                java.lang.reflect.Method exMethod = dataService.getClass().getMethod("getIoExecutor");
-                executor = (java.util.concurrent.Executor) exMethod.invoke(dataService);
-            } catch (NoSuchMethodException ignored) {
-            }
-
-            if (executor == null) executor = java.util.concurrent.Executors.newSingleThreadExecutor();
-            java.util.concurrent.Executor finalexecutor = executor;
-            // Progress UI
-            statusbar.startTask("Export CSV en cours...", true, () -> {
-                // cancellation will interrupt the thread by shutting down the executor if possible
-                if (finalexecutor instanceof java.util.concurrent.ExecutorService) {
-                    ((java.util.concurrent.ExecutorService) finalexecutor).shutdownNow();
-                }
-            });
-
-            // Récupère toutes les factures depuis le service pour l'export
-            java.util.List<?> allFactures = (java.util.List<?>) dataService.getClass().getMethod("getFacturesEnAttente").invoke(dataService);
-
-            java.util.concurrent.CompletableFuture<Integer> fut = (java.util.concurrent.CompletableFuture<Integer>) exportAsync.invoke(repo, allFactures, (java.util.function.Consumer<Integer>) (pct) -> {
-                statusbar.updateProgress(pct);
-            }, finalexecutor);
-
-            fut.whenComplete((count, err) -> {
-                statusbar.endTask();
-                if (err != null) {
-                    dataService.registrarAction("Export CSV échoué : " + err.getMessage());
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Erreur durant l'export CSV.", "Export CSV", JOptionPane.ERROR_MESSAGE));
-                } else {
-                    dataService.registrarAction("Export CSV terminé : " + count + " ligne(s)");
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Export CSV terminé : " + count + " ligne(s)", "Export CSV", JOptionPane.INFORMATION_MESSAGE));
-                }
+        // 3. Liaison asynchrone avec la couche métier (ViewDataService)
+        dataService.exporterFacturesImpayees(finalFile, pct -> {
+            // On pilote le composant de progression de l'extérieur
+            progressDialog.updateProgress(pct, "Écriture du fichier : " + pct + "%");
+        }).thenAccept(totalLines -> {
+            // Cas de succès : Fermeture du dialogue et notification
+            progressDialog.safeDispose();
+            SwingUtilities.invokeLater(() -> {
+                dataService.registrarAction("Export CSV terminé : " + totalLines + " factures générées.");
                 refreshDashboard();
+                JOptionPane.showMessageDialog(this,
+                        "L'exportation a été complétée avec succès !\n\n" +
+                                "Fichier créé : " + finalFile.getName() + "\n" +
+                                "Total lignes exportées : " + totalLines,
+                        "Succès Exportation", JOptionPane.INFORMATION_MESSAGE);
             });
+        }).exceptionally(ex -> {
+            // Cas d'erreur : Fermeture du dialogue et affichage du problème (ex: fichier
+            // ouvert dans Excel)
+            progressDialog.safeDispose();
+            SwingUtilities.invokeLater(() -> {
+                String errorMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                dataService.registrarAction("Erreur export CSV : " + errorMsg);
+                refreshDashboard();
+                JOptionPane.showMessageDialog(this,
+                        "Erreur lors de la génération du fichier CSV :\n" + errorMsg,
+                        "Erreur d'écriture", JOptionPane.ERROR_MESSAGE);
+            });
+            return null;
+        });
 
-        } catch (Exception ex) {
-            // Fallback : notifier l'utilisateur
-            dataService.registrarAction("Tentative d'export CSV (échec découverte) : " + ex.getMessage());
-            refreshDashboard();
-            JOptionPane.showMessageDialog(this, "Impossible de lancer l'export CSV (implémentation manquante).", "Export CSV",
-                    JOptionPane.ERROR_MESSAGE);
-        }
+        // 4. Affichage de la boîte de dialogue (Bloquante visuellement mais laisse
+        // tourner l'arrière-plan)
+        progressDialog.setVisible(true);
     }
 
     private void refreshDashboard() {
@@ -347,8 +380,8 @@ public class MainLayout extends JFrame {
 
         DashboardStats stats = dataService.getDashboardStats();
 
-        String abonneSub = stats.abonnesInscritsCeMois() == 0 ? "Aucun inscrit ce mois"
-                : "+" + stats.abonnesInscritsCeMois() + " inscrit(s) ce mois";
+        String abonneSub = stats.abonnesInscrits() == 0 ? "Aucun inscrit cette session"
+                : "+" + stats.abonnesInscrits() + " inscrit(s)";
         viewDashboard.updateKpiAbonnes(String.valueOf(stats.totalAbonnes()), abonneSub);
         viewDashboard.updateKpiCa(String.format("%,.0f FCFA", stats.chiffreAffaires()).replace(',', ' '),
                 "Total encaissé lors de cette session");

@@ -1,6 +1,7 @@
 package com.kilowatch.view.ui;
 
 import com.kilowatch.view.component.AppButton;
+import com.kilowatch.view.component.AppDialog;
 import com.kilowatch.view.component.AppInputField;
 import com.kilowatch.view.theme.AppColors;
 import com.kilowatch.view.data.ViewDto.Abonne;
@@ -12,21 +13,18 @@ import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.util.function.Consumer;
 
-public class AbonneFormDialog extends JDialog {
+public class AbonneFormDialog extends AppDialog {
 
     private AppInputField nomField;
     private AppInputField compteurField;
-    private JComboBox<String> categorieBox;
+    private JComboBox<CategorieAbonne> categorieBox;
     private AppInputField indexField;
 
     private Consumer<Abonne> onSaveListener;
 
     public AbonneFormDialog(Frame owner) {
         super(owner, "Nouvel Abonné", true); // true = modal (bloque la fenêtre principale)
-
         setSize(450, 550);
-        setLocationRelativeTo(owner);
-        setUndecorated(true); // Enlève la barre de titre classique de Windows/Mac pour un look moderne
 
         // --- PANNEAU PRINCIPAL AVEC BORDURE ---
         JPanel mainPanel = new JPanel(new BorderLayout());
@@ -68,7 +66,7 @@ public class AbonneFormDialog extends JDialog {
         indexField = new AppInputField("Index de départ (kWh)", AppInputField.Variant.BLOCK_NUMBER);
 
         // ComboBox personnalisé pour la catégorie
-        JComboBox<CategorieAbonne> categorieBox = new JComboBox<>(CategorieAbonne.values());
+        categorieBox = new JComboBox<>(CategorieAbonne.values());
         categorieBox.setFont(new Font("Inter", Font.PLAIN, 14));
         categorieBox.setBackground(AppColors.BG_SURFACE_2);
         categorieBox.setForeground(AppColors.TEXT_PRIMARY);
@@ -115,13 +113,17 @@ public class AbonneFormDialog extends JDialog {
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         setContentPane(mainPanel);
+
+        // On indique à AppDialog que ce bouton doit réagir à la touche Entrée
+        setSubmitButton(saveBtn);
     }
 
     private void validerFormulaire() {
         // Validation basique
         String nom = nomField.getText();
         String compteur = compteurField.getText();
-        String cat = (String) categorieBox.getSelectedItem();
+        CategorieAbonne selectedCat = (CategorieAbonne) categorieBox.getSelectedItem();
+        String cat = (selectedCat != null) ? selectedCat.name() : CategorieAbonne.RESIDENTIEL.name();
         String indexStr = indexField.getText();
 
         if (nom.isEmpty() || compteur.isEmpty() || indexStr.isEmpty()) {

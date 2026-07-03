@@ -13,10 +13,14 @@ import java.util.function.Consumer;
 public class Sidebar extends JPanel {
 
     private final Consumer<String> onMenuSelected;
+    private final Runnable onLogoutRequest; // <-- NOUVEAU : Le callback de déconnexion
     private final List<JButton> menuButtons = new ArrayList<>();
 
-    public Sidebar(Consumer<String> onMenuSelected) {
+    // Mise à jour du constructeur
+    public Sidebar(Consumer<String> onMenuSelected, Runnable onLogoutRequest) {
         this.onMenuSelected = onMenuSelected;
+        this.onLogoutRequest = onLogoutRequest; // <-- Initialisation
+
         setLayout(new BorderLayout());
         setPreferredSize(new Dimension(220, 0));
         setBackground(AppColors.BG_SIDEBAR);
@@ -26,14 +30,9 @@ public class Sidebar extends JPanel {
         add(createNavigation(), BorderLayout.CENTER);
         add(createFooter(), BorderLayout.SOUTH);
 
-        // Par défaut, on peut activer le tableau de bord au démarrage
         setActiveMenu("VIEW_DASHBOARD");
     }
 
-    /**
-     * Permet de mettre à jour visuellement le bouton actif de la sidebar
-     * depuis un appel externe (ex: MainLayout).
-     */
     public void setActiveMenu(String viewId) {
         for (JButton btn : menuButtons) {
             String btnViewId = (String) btn.getClientProperty("viewId");
@@ -63,17 +62,11 @@ public class Sidebar extends JPanel {
         JButton btn = new JButton(text, iconEnum.get(18, AppColors.TEXT_SECONDARY));
         btn.setHorizontalAlignment(SwingConstants.LEFT);
         btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-
-        // CRUCIAL : On attache l'ID de la vue au bouton pour pouvoir le retrouver plus
-        // tard
         btn.putClientProperty("viewId", viewId);
-
         applyButtonStyle(btn, false);
 
         btn.addActionListener(e -> {
-            // Met à jour visuellement la sélection en local
             setActiveMenu(viewId);
-            // Déclenche la navigation CardLayout
             onMenuSelected.accept(viewId);
         });
 
@@ -106,6 +99,13 @@ public class Sidebar extends JPanel {
         JButton btnLogout = new AppButton("Déconnexion", AppIcons.LOG_OUT, AppButton.Theme.DANGER);
         btnLogout.setPreferredSize(new Dimension(0, 40));
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        // --- C'EST ICI QUE LA MAGIE OPÈRE ---
+        btnLogout.addActionListener(e -> {
+            if (onLogoutRequest != null) {
+                onLogoutRequest.run(); // On déclenche l'événement vers le haut !
+            }
+        });
 
         footer.add(btnLogout, BorderLayout.CENTER);
         footer.setPreferredSize(new Dimension(220, 70));

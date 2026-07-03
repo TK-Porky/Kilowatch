@@ -13,10 +13,9 @@ public class Topbar extends JMenuBar {
     private Runnable onNewAbonneListener;
     private Runnable onGoToRelevesListener;
     private Runnable onExportCsvListener;
-
-    // Nouveaux callbacks pour tes nouvelles vues/filtres
     private Runnable onGoToImpayesListener;
     private Runnable onGoToGrosConsommateursListener;
+    private Runnable onLogoutListener;
 
     public Topbar() {
         setBackground(AppColors.BG_SIDEBAR);
@@ -37,6 +36,15 @@ public class Topbar extends JMenuBar {
                 onExportCsvListener.run();
         });
 
+        // --- NOUVEAU : Option Déconnexion ---
+        JMenuItem itemDeconnexion = new JMenuItem("Déconnexion");
+        itemDeconnexion.setAccelerator(
+                KeyStroke.getKeyStroke(KeyEvent.VK_D, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        itemDeconnexion.addActionListener(e -> {
+            if (onLogoutListener != null)
+                onLogoutListener.run();
+        });
+
         JMenuItem itemQuitter = new JMenuItem("Quitter");
         itemQuitter.setAccelerator(
                 KeyStroke.getKeyStroke(KeyEvent.VK_Q, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -44,6 +52,7 @@ public class Topbar extends JMenuBar {
 
         menuFichier.add(itemExport);
         menuFichier.addSeparator();
+        menuFichier.add(itemDeconnexion); // Ajouté juste avant "Quitter"
         menuFichier.add(itemQuitter);
 
         // ==========================================
@@ -69,18 +78,14 @@ public class Topbar extends JMenuBar {
         });
 
         JMenuItem itemImpayee = new JMenuItem("Liste des impayés");
-        // Correction : Changement du raccourci en 'L' pour éviter le conflit avec 'R'
         itemImpayee.setAccelerator(
                 KeyStroke.getKeyStroke(KeyEvent.VK_L, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        // Correction : Utilisation de la bonne variable (itemImpayee au lieu de
-        // itemReleves)
         itemImpayee.addActionListener(e -> {
             if (onGoToImpayesListener != null)
                 onGoToImpayesListener.run();
         });
 
         JMenuItem itemGrosCons = new JMenuItem("Gros Consommateurs");
-        // Correction : Changement du raccourci en 'G' pour éviter le conflit
         itemGrosCons.setAccelerator(
                 KeyStroke.getKeyStroke(KeyEvent.VK_G, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         itemGrosCons.addActionListener(e -> {
@@ -90,7 +95,7 @@ public class Topbar extends JMenuBar {
 
         menuNav.add(itemNouveau);
         menuNav.add(itemReleves);
-        menuNav.addSeparator(); // Un petit séparateur visuel
+        menuNav.addSeparator();
         menuNav.add(itemImpayee);
         menuNav.add(itemGrosCons);
 
@@ -106,8 +111,6 @@ public class Topbar extends JMenuBar {
         itemRaccourcis.addActionListener(e -> showRaccourcisDialog());
 
         JMenuItem itemApropos = new JMenuItem("À propos de Kilowatch");
-        // VK_I était déjà utilisé pour "À propos", c'est pour ça que j'ai mis VK_L
-        // (Liste) pour les impayés plus haut
         itemApropos.setAccelerator(
                 KeyStroke.getKeyStroke(KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         itemApropos.addActionListener(e -> showAproposDialog());
@@ -163,12 +166,15 @@ public class Topbar extends JMenuBar {
         this.onGoToGrosConsommateursListener = onGoToGrosConsommateursListener;
     }
 
+    public void setOnLogoutListener(Runnable onLogoutListener) {
+        this.onLogoutListener = onLogoutListener;
+    }
+
     // ==========================================
     // BOÎTES DE DIALOGUE (JOptionPane)
     // ==========================================
 
     private void showRaccourcisDialog() {
-        // Mise à jour de la liste avec les nouveaux raccourcis
         String msg = """
                 Liste des raccourcis clavier globaux :
 
@@ -179,17 +185,19 @@ public class Topbar extends JMenuBar {
                 • Ctrl + E : Exporter les impayés (CSV)
                 • Ctrl + H : Afficher les raccourcis
                 • Ctrl + I : À propos
+                • Ctrl + D : Déconnexion de la session
                 • Ctrl + Q : Quitter l'application
 
                 Raccourcis contextuels :
-                • Touche [Entrée] : Valider la saisie dans les formulaires (Abonné / Index)
+                • Touche [Entrée] : Valider la saisie dans les formulaires
+                • Touche [Échap] : Fermer les fenêtres pop-up (modales)
                 """;
         JOptionPane.showMessageDialog(this, msg, "Raccourcis Clavier", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void showAproposDialog() {
         String msg = """
-                Kilowatch v1.0
+                Kilowatch v2.0
                 Plateforme de Suivi des Consommations d'Énergie Post-payées.
 
                 Projet académique développé par l'équipe G2.

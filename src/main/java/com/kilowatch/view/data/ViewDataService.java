@@ -1,6 +1,10 @@
 package com.kilowatch.view.data;
 
+import java.io.File;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+
 import com.kilowatch.view.data.ViewDto.*;
 
 public interface ViewDataService {
@@ -37,4 +41,18 @@ public interface ViewDataService {
     List<ActionLog> getRecentActions();
 
     DashboardStats getDashboardStats();
+
+    // --- VUE EXPORT ---
+    /**
+     * Lance l'exportation asynchrone des factures impayées au format CSV.
+     * 
+     * @param progressCallback Reçoit le pourcentage d'avancement (0 à 100)
+     * @return Un CompletableFuture contenant le nombre de factures exportées
+     */
+    CompletableFuture<Integer> exporterFacturesImpayees(File destination, Consumer<Integer> progressCallback);
+
+    // --- VUE SECURITÉ ---
+    boolean authentifier(String username, String password);
+
+    void deconnecter();
 }

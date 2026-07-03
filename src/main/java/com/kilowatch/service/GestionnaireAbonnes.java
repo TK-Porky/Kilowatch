@@ -5,6 +5,7 @@ import com.kilowatch.exception.AbonneNotFoundException;
 import com.kilowatch.model.Abonne;
 import com.kilowatch.model.Facture;
 
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -14,6 +15,46 @@ public class GestionnaireAbonnes {
     private final List<Facture> factures = new ArrayList<>();
 
     // ---------- CRUD ABONNES ----------
+    // À ajouter dans GestionnaireAbonnes.java
+
+    /**
+     * Renvoie la liste complète des abonnés.
+     */
+    public List<Abonne> getAllAbonnes() {
+        return new ArrayList<>(abonnes.values());
+    }
+
+    /**
+     * Recherche toutes les factures associées à un numéro de compteur.
+     */
+    public List<Facture> getFacturesParCompteur(String numeroCompteur) {
+        return factures.stream()
+                .filter(f -> {
+                    // On retrouve l'abonné associé à la facture pour vérifier son compteur
+                    try {
+                        Abonne a = rechercherParId(f.getIdAbonne());
+                        return a.getNumeroCompteur().equalsIgnoreCase(numeroCompteur);
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Recherche un abonné par son numéro de compteur exact ou par une partie de son
+     * nom.
+     */
+    public Optional<Abonne> findAbonneParCompteurOuNom(String query) {
+        if (query == null || query.strip().isEmpty()) {
+            return Optional.empty();
+        }
+        String lowerQuery = query.toLowerCase().strip();
+        return abonnes.values().stream()
+                .filter(a -> a.getNumeroCompteur().equalsIgnoreCase(lowerQuery)
+                        || a.getNomComplet().toLowerCase().contains(lowerQuery))
+                .findFirst();
+    }
 
     public void ajouterAbonne(Abonne abonne) {
         if (abonnes.containsKey(abonne.getId())) {
@@ -66,6 +107,20 @@ public class GestionnaireAbonnes {
     }
 
     // ---------- GESTION FACTURES ----------
+    /**
+     * Calcule le chiffre d'affaires (recettes encaissées) pour le mois en cours.
+     */
+    public double calculerRecetteEncaisseeDuMois() {
+        LocalDate dateActuelle = LocalDate.now();
+
+        return factures.stream()
+                .filter(Facture::isPayee) // Uniquement les factures payées
+                .filter(f -> f.getDateEmission() != null &&
+                        f.getDateEmission().getMonth() == dateActuelle.getMonth() &&
+                        f.getDateEmission().getYear() == dateActuelle.getYear())
+                .mapToDouble(Facture::getMontantTTC)
+                .sum();
+    }
 
     public void ajouterFacture(Facture facture) {
         factures.add(facture);
@@ -125,8 +180,7 @@ public class GestionnaireAbonnes {
         return factures.stream()
                 .collect(Collectors.groupingBy(
                         Facture::getCategorieAbonne,
-                        Collectors.summingDouble(Facture::getMontantTTC)
-                ));
+                        Collectors.summingDouble(Facture::getMontantTTC)));
     }
 
     public Map<String, Long> nombreAbonnesParCategorie() {

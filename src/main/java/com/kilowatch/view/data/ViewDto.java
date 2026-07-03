@@ -32,7 +32,7 @@ public class ViewDto {
             int totalFactures,
             int facturesPayees,
             int totalAbonnes,
-            int abonnesInscritsCeMois,
+            int abonnesInscrits,
             int[] encaissements7DerniersJours // Le tableau de taille 7 sécurisé !
     ) {
     }
