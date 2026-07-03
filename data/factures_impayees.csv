@@ -1,3 +1,4 @@
-id;idAbonne;categorie;consommation_kWh;montantHT_FCFA;montantTVA_FCFA;montantTTC_FCFA;dateEmission
-FACT-0002;AB-0002;RESIDENTIEL;150,00;9800,00;1886,50;11686,50;2026-06-29
-FACT-0003;AB-0003;INDUSTRIE;500,00;72500,00;13956,25;86456,25;2026-06-29
+nom;numeroCompteur;categorie;consommation_kWh;montantTTC_FCFA
+Fouda Mballa P.;CMP-20014;Résidentiel;274;31 041
+Etoa Ekani C.;CMP-20007;Résidentiel;120;13 560
+Talla J.;CMP-20035;Social;137;6 849
