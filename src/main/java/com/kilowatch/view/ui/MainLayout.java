@@ -83,6 +83,10 @@ public class MainLayout extends JFrame {
         if (sidebar != null) {
             sidebar.setActiveMenu(viewId);
         }
+
+        if (targetView == AppView.DASHBOARD) {
+            refreshDashboard();
+        }
     }
 
     private void initWorkzone() {
