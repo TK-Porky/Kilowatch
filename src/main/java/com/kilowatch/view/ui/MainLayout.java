@@ -1,6 +1,5 @@
 package com.kilowatch.view.ui;
 
-import com.kilowatch.view.component.ExportProgressDialog;
 import com.kilowatch.view.data.ViewDataService;
 import com.kilowatch.view.data.ViewEnum.*; // <-- Importation globale des Enums sécurisés
 import com.kilowatch.view.data.ViewDto.Abonne;
@@ -335,16 +334,14 @@ public class MainLayout extends JFrame {
         dataService.registrarAction("Lancement export CSV vers : " + finalFile.getName());
         refreshDashboard();
 
-        // 2. Instanciation du nouveau composant modulaire
-        ExportProgressDialog progressDialog = new ExportProgressDialog(this, "Kilowatch — Exportation");
+        // 2. Affichage immédiat de la progression dans la Statusbar
+        statusbar.startTask("Préparation de l'export CSV...", false, null);
 
-        // 3. Liaison asynchrone avec la couche métier (ViewDataService)
-        dataService.exporterFacturesImpayees(finalFile, pct -> {
-            // On pilote le composant de progression de l'extérieur
-            progressDialog.updateProgress(pct, "Écriture du fichier : " + pct + "%");
+        // 3. Lancement décalé d'un tour EDT pour laisser la barre se peindre avant le travail arrière-plan
+        SwingUtilities.invokeLater(() -> dataService.exporterFacturesImpayees(finalFile, pct -> {
+            statusbar.updateProgress(pct);
         }).thenAccept(totalLines -> {
-            // Cas de succès : Fermeture du dialogue et notification
-            progressDialog.safeDispose();
+            statusbar.endTask();
             SwingUtilities.invokeLater(() -> {
                 dataService.registrarAction("Export CSV terminé : " + totalLines + " factures générées.");
                 refreshDashboard();
@@ -355,9 +352,7 @@ public class MainLayout extends JFrame {
                         "Succès Exportation", JOptionPane.INFORMATION_MESSAGE);
             });
         }).exceptionally(ex -> {
-            // Cas d'erreur : Fermeture du dialogue et affichage du problème (ex: fichier
-            // ouvert dans Excel)
-            progressDialog.safeDispose();
+            statusbar.endTask();
             SwingUtilities.invokeLater(() -> {
                 String errorMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
                 dataService.registrarAction("Erreur export CSV : " + errorMsg);
@@ -367,11 +362,7 @@ public class MainLayout extends JFrame {
                         "Erreur d'écriture", JOptionPane.ERROR_MESSAGE);
             });
             return null;
-        });
-
-        // 4. Affichage de la boîte de dialogue (Bloquante visuellement mais laisse
-        // tourner l'arrière-plan)
-        progressDialog.setVisible(true);
+        }));
     }
 
     private void refreshDashboard() {

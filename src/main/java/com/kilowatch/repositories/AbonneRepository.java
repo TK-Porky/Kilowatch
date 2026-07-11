@@ -20,7 +20,6 @@ public class AbonneRepository {
     // ── Chemins des fichiers de données
     private static final String DOSSIER_DATA = "data/";
     private static final String FICHIER_SER = DOSSIER_DATA + "kilowatch_data.ser";
-    private static final String FICHIER_CSV = DOSSIER_DATA + "factures_impayees.csv";
 
     // ── Séparateur CSV
     private static final String SEPARATEUR = "|";
@@ -113,6 +112,17 @@ public class AbonneRepository {
             if (impayees.isEmpty()) {
                 if (progressCallback != null)
                     progressCallback.accept(100);
+                return 0;
+            }
+
+            if (progressCallback != null) {
+                progressCallback.accept(0);
+            }
+
+            try {
+                Thread.sleep(20000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 return 0;
             }
 

@@ -14,6 +14,7 @@ import com.kilowatch.view.data.ViewEnum.FiltreCaisse;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -21,7 +22,8 @@ public class MockDataService implements ViewDataService {
 
     private final List<Abonne> abonnesDb;
     private final List<FactureEnAttente> facturesDb;
-    private final List<ActionLog> recentActions = new ArrayList<>();
+    private final List<ActionLog> recentActions;
+    private final Object lock = new Object();
 
     private double chiffreAffairesSession = 51450.0;
     private int abonnesInscritsCeMois = 0;
@@ -47,12 +49,16 @@ public class MockDataService implements ViewDataService {
                 new Abonne("AB-1005", "Talla J.", "CMP-20035", CategorieAbonne.SOCIAL.getLibelle(), 3558,
                         StatutFacture.IMPAYEE.getLibelle())));
 
-        facturesDb = new ArrayList<>(List.of(
+        List<FactureEnAttente> _factures = new ArrayList<>(List.of(
                 new FactureEnAttente("Fouda Mballa P.", "CMP-20014", CategorieAbonne.RESIDENTIEL.getLibelle(), 274,
                         31041.0),
                 new FactureEnAttente("Etoa Ekani C.", "CMP-20007", CategorieAbonne.RESIDENTIEL.getLibelle(), 120,
                         13560.0),
                 new FactureEnAttente("Talla J.", "CMP-20035", CategorieAbonne.SOCIAL.getLibelle(), 137, 6849.0)));
+        // wrap backing lists as synchronizedList to allow safe snapshots for readers
+        this.facturesDb = Collections.synchronizedList(_factures);
+
+        this.recentActions = Collections.synchronizedList(new ArrayList<>());
 
         registrarAction("Démarrage du système Kilowatch");
         registrarAction("Encaissement enregistré : CMP-20014 (+31 041 FCFA)");
@@ -81,7 +87,11 @@ public class MockDataService implements ViewDataService {
 
     @Override
     public int getConsoEnAttente(String numeroCompteur) {
-        return facturesDb.stream()
+        List<FactureEnAttente> snapshot;
+        synchronized (facturesDb) {
+            snapshot = new ArrayList<>(facturesDb);
+        }
+        return snapshot.stream()
                 .filter(f -> f.numeroCompteur().equalsIgnoreCase(numeroCompteur))
                 .mapToInt(FactureEnAttente::consoKwh)
                 .findFirst()
@@ -90,7 +100,11 @@ public class MockDataService implements ViewDataService {
 
     @Override
     public List<FactureEnAttente> getFilteredFactures(String filterId, boolean sortDesc) {
-        return facturesDb.stream()
+        List<FactureEnAttente> snapshot;
+        synchronized (facturesDb) {
+            snapshot = new ArrayList<>(facturesDb);
+        }
+        return snapshot.stream()
                 .filter(f -> {
                     if (FiltreCaisse.FILTER_SOCIAL.name().equals(filterId))
                         return f.categorie().equalsIgnoreCase(CategorieAbonne.SOCIAL.getLibelle());
@@ -124,31 +138,33 @@ public class MockDataService implements ViewDataService {
 
     @Override
     public boolean encaisserFacture(String numeroCompteur) {
-        double montantSaisi = 0;
-        for (FactureEnAttente f : facturesDb) {
-            if (f.numeroCompteur().equals(numeroCompteur)) {
-                montantSaisi = f.montantTtc();
-                break;
-            }
-        }
-
-        boolean success = facturesDb.removeIf(f -> f.numeroCompteur().equals(numeroCompteur));
-
-        if (success) {
-            chiffreAffairesSession += montantSaisi;
-            facturesPayees++; // <-- INCREMENTATION DYNAMIQUE
-
-            for (int i = 0; i < abonnesDb.size(); i++) {
-                Abonne a = abonnesDb.get(i);
-                if (a.numeroCompteur().equals(numeroCompteur)) {
-                    abonnesDb.set(i, new Abonne(a.id(), a.nom(), a.numeroCompteur(), a.categorie(), a.ancienIndex(),
-                            StatutFacture.PAYEE.getLibelle()));
+        synchronized (lock) {
+            double montantSaisi = 0;
+            for (FactureEnAttente f : facturesDb) {
+                if (f.numeroCompteur().equals(numeroCompteur)) {
+                    montantSaisi = f.montantTtc();
+                    break;
                 }
             }
-            registrarAction("Encaissement enregistré : " + numeroCompteur + " (+" + String.format("%,.0f", montantSaisi)
-                    + " FCFA)");
+
+            boolean success = facturesDb.removeIf(f -> f.numeroCompteur().equals(numeroCompteur));
+
+            if (success) {
+                chiffreAffairesSession += montantSaisi;
+                facturesPayees++; // <-- INCREMENTATION DYNAMIQUE
+
+                for (int i = 0; i < abonnesDb.size(); i++) {
+                    Abonne a = abonnesDb.get(i);
+                    if (a.numeroCompteur().equals(numeroCompteur)) {
+                        abonnesDb.set(i, new Abonne(a.id(), a.nom(), a.numeroCompteur(), a.categorie(), a.ancienIndex(),
+                                StatutFacture.PAYEE.getLibelle()));
+                    }
+                }
+                registrarAction("Encaissement enregistré : " + numeroCompteur + " (+" + String.format("%,.0f", montantSaisi)
+                        + " FCFA)");
+            }
+            return success;
         }
-        return success;
     }
 
     @Override
@@ -174,20 +190,22 @@ public class MockDataService implements ViewDataService {
         double prixKwh = abonne.categorie().equalsIgnoreCase(CategorieAbonne.SOCIAL.getLibelle()) ? 50.0 : 113.0;
         double montantCalcule = conso * prixKwh;
 
-        facturesDb.add(0,
-                new FactureEnAttente(abonne.nom(), abonne.numeroCompteur(), abonne.categorie(), conso, montantCalcule));
+        synchronized (lock) {
+            facturesDb.add(0,
+                    new FactureEnAttente(abonne.nom(), abonne.numeroCompteur(), abonne.categorie(), conso, montantCalcule));
 
-        totalFactures++; // <-- INCREMENTATION DYNAMIQUE
+            totalFactures++; // <-- INCREMENTATION DYNAMIQUE
 
-        for (int i = 0; i < abonnesDb.size(); i++) {
-            if (abonnesDb.get(i).numeroCompteur().equals(numeroCompteur)) {
-                Abonne old = abonnesDb.get(i);
-                abonnesDb.set(i, new Abonne(old.id(), old.nom(), old.numeroCompteur(), old.categorie(),
-                        old.ancienIndex(), StatutFacture.IMPAYEE.getLibelle()));
+            for (int i = 0; i < abonnesDb.size(); i++) {
+                if (abonnesDb.get(i).numeroCompteur().equals(numeroCompteur)) {
+                    Abonne old = abonnesDb.get(i);
+                    abonnesDb.set(i, new Abonne(old.id(), old.nom(), old.numeroCompteur(), old.categorie(),
+                            old.ancienIndex(), StatutFacture.IMPAYEE.getLibelle()));
+                }
             }
-        }
 
-        registrarAction("Index validé pour le " + abonne.numeroCompteur() + " (+" + conso + " kWh)");
+            registrarAction("Index validé pour le " + abonne.numeroCompteur() + " (+" + conso + " kWh)");
+        }
         return new ReleveSession(LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")), abonne.nom(),
                 abonne.numeroCompteur(), conso);
     }
@@ -242,7 +260,7 @@ public class MockDataService implements ViewDataService {
             int total = facturesDb.size();
             for (int i = 1; i <= 10; i++) {
                 try {
-                    Thread.sleep(80);
+                    Thread.sleep(8000);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }

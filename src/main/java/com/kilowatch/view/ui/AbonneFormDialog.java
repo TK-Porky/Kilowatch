@@ -25,6 +25,7 @@ public class AbonneFormDialog extends AppDialog {
     public AbonneFormDialog(Frame owner) {
         super(owner, "Nouvel Abonné", true); // true = modal (bloque la fenêtre principale)
         setSize(450, 550);
+        setLocationRelativeTo(owner);
 
         // --- PANNEAU PRINCIPAL AVEC BORDURE ---
         JPanel mainPanel = new JPanel(new BorderLayout());
